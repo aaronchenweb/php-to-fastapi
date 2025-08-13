@@ -1,0 +1,129 @@
+flowchart TD
+    A["main.py: main"] --> B["setup_argument_parser"]
+    B --> C["validate_environment"]
+    C --> D["apply_argument_overrides"]
+    D --> E["validate_php_project"]
+    E --> F["ConversionOrchestrator.init"]
+    
+    F --> G["orchestrator.convert_project"]
+    G --> H["_validate_llm_connection"]
+    H --> I{LLM Connection OK?}
+    I -->|No| J["Return False"]
+    I -->|Yes| K["_execute_analysis_stage"]
+    
+    K --> L["ui.show_stage_header: Analysis Understanding"]
+    L --> M["AnalysisStage.perform_local_analysis"]
+    
+    %% Local Analysis Details
+    M --> N["detector.analyze_project"]
+    N --> O["Get basic project info:<br/>root_path, framework<br/>php_version, php_files<br/>api_files, entry_points<br/>config_files"]
+    
+    O --> P["_analyze_php_code"]
+    P --> P1["Initialize PHPParser"]
+    P1 --> P2["Loop through php_files max 100"]
+    P2 --> P3["PHPParser.parse_file for each file"]
+    P3 --> P4["Extract Classes Methods Functions<br/>Namespaces Traits<br/>PHP version features"]
+    P4 --> P5["PHPParser.get_analysis_summary"]
+    P5 --> P6["Transform to expected format<br/>code_metrics<br/>language_features<br/>complexity_level"]
+    
+    P6 --> Q["_analyze_api_endpoints"]
+    Q --> Q1["Initialize APIExtractor"]
+    Q1 --> Q2["APIExtractor.extract_from_directory"]
+    Q2 --> Q3["Parse route patterns<br/>Laravel: Route get/post<br/>Slim: app get/post<br/>CodeIgniter: route array<br/>Generic: GET POST checks"]
+    Q3 --> Q4["APIExtractor.analyze_endpoints"]
+    Q4 --> Q5["APIExtractor.group_endpoints"]
+    Q5 --> Q6["Transform to format<br/>total_endpoints<br/>http_methods_used<br/>authentication_methods<br/>endpoint_categories"]
+    
+    Q6 --> R["_analyze_database_usage"]
+    R --> R1["Initialize DatabaseAnalyzer"]
+    R1 --> R2["DatabaseAnalyzer.analyze_database_usage"]
+    R2 --> R3["Find config files<br/>config/database.php<br/>.env files<br/>database.php"]
+    R3 --> R4["Analyze connections<br/>MySQL PostgreSQL<br/>SQLite MongoDB"]
+    R4 --> R5["Detect ORM<br/>Eloquent Doctrine<br/>Propel ActiveRecord"]
+    R5 --> R6["Analyze queries<br/>Raw SQL PDO<br/>ORM methods"]
+    R6 --> R7["Extract table info<br/>Table names<br/>Model classes<br/>Relationships"]
+    R7 --> R8["Transform to format<br/>database_type<br/>orm_framework<br/>tables_estimated<br/>query_patterns"]
+    
+    R8 --> S["_analyze_dependencies"]
+    S --> S1["Initialize DependencyMapper"]
+    S1 --> S2["Check composer.json exists"]
+    S2 --> S3{composer.json found?}
+    S3 -->|Yes| S4["DependencyMapper.analyze_composer_json"]
+    S3 -->|No| S5["Create empty DependencyAnalysis"]
+    S4 --> S6["Parse require and require-dev"]
+    S5 --> S6
+    S6 --> S7["Map PHP packages to Python<br/>guzzlehttp/guzzle to httpx<br/>monolog/monolog to loguru<br/>doctrine/dbal to sqlalchemy"]
+    S7 --> S8["DependencyMapper.analyze_code_dependencies"]
+    S8 --> S9["Scan PHP files for implicit deps<br/>curl functions to httpx<br/>mysqli to mysql-connector<br/>json functions to built-in"]
+    S9 --> S10["Transform to format<br/>total_dependencies<br/>python_equivalents<br/>migration_complexity"]
+    
+    S10 --> T["_analyze_project_structure"]
+    T --> T1["Initialize StructureAnalyzer"]
+    T1 --> T2["StructureAnalyzer.analyze_structure"]
+    T2 --> T3["_scan_directories_for_counts"]
+    T3 --> T4["Walk directory tree<br/>Skip vendor node_modules<br/>Count PHP files<br/>Identify directory purposes"]
+    T4 --> T5["_detect_framework<br/>Laravel: app routes config<br/>Symfony: src templates<br/>CodeIgniter: application system<br/>Vanilla: custom structure"]
+    T5 --> T6["_analyze_organization_pattern<br/>MVC Domain-driven<br/>Layered Component-based<br/>Flat Mixed"]
+    T6 --> T7["_find_entry_points<br/>index.php app.php<br/>public/index.php"]
+    T7 --> T8["_find_config_files<br/>config.php .env<br/>database.php"]
+    T8 --> T9["_calculate_architecture_score"]
+    T9 --> T10["Transform to format<br/>organization_pattern<br/>architecture_score<br/>fastapi_mapping"]
+    
+    T10 --> U["_generate_summary_metrics"]
+    U --> U1["Calculate overall_complexity"]
+    U1 --> U2["Assess migration_readiness"]
+    U2 --> U3["Estimate conversion_effort"]
+    U3 --> U4["Identify risk_factors"]
+    
+    U4 --> V["Return complete analysis_data"]
+    V --> W{Local Analysis OK?}
+    W -->|No| X["ui.error and Return False"]
+    W -->|Yes| Y["ui.success Local analysis completed"]
+    
+    Y --> Y1["display_local_analysis_results"]
+    Y1 --> Y2["Show Local Results on Terminal:<br/>• Project Info & Framework<br/>• PHP Code Analysis<br/>• API Endpoints Found<br/>• Database Detection<br/>• Dependencies Mapped<br/>• Structure Analysis<br/>• Summary Metrics"]
+    Y2 --> Y3{User wants LLM enhancement?}
+    Y3 -->|No| Y4["_convert_local_to_llm_format"]
+    Y3 -->|Yes| Z["AnalysisStage.get_llm_analysis"]
+    
+    Z --> Z1["prompts.get_system_prompt"]
+    Z1 --> Z2["prompts.get_analysis_prompt with local_analysis"]
+    Z2 --> Z3["llm_client.generate_response"]
+    Z3 --> Z4{LLM Success?}
+    Z4 -->|No| Z5["ui.show_llm_error<br/>Use local results only"]
+    Z4 -->|Yes| Z6["llm_client.parse_json_response"]
+    
+    Z5 --> Y4
+    Z6 --> Z7["display_llm_analysis_results"]
+    Z7 --> Z8["Show LLM Results:<br/>• Enhanced Project Summary<br/>• Architecture Insights<br/>• Design Patterns<br/>• Potential Issues<br/>• Detailed Recommendations"]
+    
+    Z8 --> Z9["display_analysis_comparison"]
+    Z9 --> Z10["Show Comparison:<br/>• Local vs LLM Complexity<br/>• Endpoint Count Differences<br/>• Database Detection Comparison<br/>• LLM Enhancements Added<br/>• Potential Discrepancies"]
+    
+    Y4 --> BB["ui.show_analysis_summary"]
+    Z10 --> BB
+    BB --> CC["ui.get_user_approval for analysis"]
+    CC --> DD{User Approves?}
+    DD -->|No| EE["ui.warning and Return False"]
+    DD -->|Yes| FF["Store analysis_result"]
+    FF --> GG["ui.success Analysis stage approved"]
+    GG --> HH["Return True - Ready for Planning Stage"]
+    
+    %% Styling
+    classDef startEnd fill:#e1f5fe,color:#000
+    classDef process fill:#f3e5f5,color:#000
+    classDef decision fill:#fff3e0,color:#000
+    classDef analyzer fill:#e8f5e8,color:#000
+    classDef error fill:#ffebee,color:#000
+    classDef success fill:#e8f5e8,color:#000
+    classDef display fill:#f9fbe7,color:#000
+    classDef comparison fill:#fff8e1,color:#000
+    
+    class A,HH startEnd
+    class B,C,D,E,F,G,H,L,M,N,O,V,Y,Z,Z1,Z2,Z3,Z6,BB,FF,GG process
+    class I,W,Y3,Z4,CC,DD decision
+    class P,P1,P2,P3,P4,P5,P6,Q,Q1,Q2,Q3,Q4,Q5,Q6,R,R1,R2,R3,R4,R5,R6,R7,R8,S,S1,S2,S4,S5,S6,S7,S8,S9,S10,T,T1,T2,T3,T4,T5,T6,T7,T8,T9,T10,U,U1,U2,U3,U4 analyzer
+    class J,X,Z5,EE error
+    class Y1,Y2,Z7,Z8 display
+    class Z9,Z10 comparison
+    class Y4 success
