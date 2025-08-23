@@ -141,7 +141,7 @@ LLM_API_KEY=your-anthropic-key
 
 ```bash
 LLM_PROVIDER=gemini
-LLM_MODEL=gemini-1.5-pro          # or gemini-1.5-flash
+LLM_MODEL=gemini-2.0-flash
 LLM_API_KEY=your-gemini-key
 ```
 

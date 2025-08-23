@@ -1,5 +1,5 @@
-# core/user_interface.py - Enhanced for local analysis display
-"""User interface for interactive conversion process with enhanced local analysis display."""
+# core/user_interface.py - Enhanced for generation stage with progress tracking
+"""User interface for interactive conversion process with enhanced generation stage display."""
 
 import json
 import sys
@@ -9,11 +9,13 @@ import textwrap
 
 
 class UserInterface:
-    """Handles user interaction during conversion process."""
+    """Handles user interaction during conversion process with enhanced generation tracking."""
     
     def __init__(self, verbose: bool = False):
         self.verbose = verbose
         self.width = 80  # Terminal width for formatting
+        self.current_phase = None
+        self.phase_start_time = None
     
     def show_welcome_message(self) -> None:
         """Display welcome message."""
@@ -59,10 +61,87 @@ class UserInterface:
         print(f"Stage {stage_number}: {stage_name}".center(self.width))
         print("=" * self.width)
         print()
+        
+        self.current_phase = stage_name
+        self.phase_start_time = datetime.now()
     
     def show_progress(self, message: str) -> None:
         """Show progress message."""
         print(f"⏳ {message}")
+    
+    def show_generation_progress(self, current_item: str, total_items: int, current_index: int) -> None:
+        """Show generation progress with item tracking."""
+        percentage = (current_index / total_items) * 100 if total_items > 0 else 0
+        progress_bar = self._create_progress_bar(percentage)
+        print(f"🔄 [{current_index}/{total_items}] {progress_bar} {percentage:.1f}% - {current_item}")
+    
+    def show_phase_progress(self, phase_name: str, step: int, total_steps: int) -> None:
+        """Show progress within a generation phase."""
+        percentage = (step / total_steps) * 100 if total_steps > 0 else 0
+        progress_bar = self._create_progress_bar(percentage)
+        print(f"📊 {phase_name}: [{step}/{total_steps}] {progress_bar} {percentage:.1f}%")
+    
+    def show_conversion_status(self, item_name: str, status: str, details: str = "") -> None:
+        """Show status of individual conversion items."""
+        status_icons = {
+            'processing': '⏳',
+            'success': '✅',
+            'warning': '⚠️',
+            'error': '❌',
+            'skipped': '⏭️'
+        }
+        
+        icon = status_icons.get(status, '🔄')
+        message = f"{icon} {item_name}: {status.title()}"
+        
+        if details:
+            message += f" - {details}"
+        
+        print(message)
+    
+    def show_llm_interaction(self, operation: str, item_name: str) -> None:
+        """Show when LLM is being used for conversion."""
+        print(f"🤖 LLM Converting: {operation} - {item_name}")
+    
+    def show_file_generation(self, file_path: str, content_preview: str = "") -> None:
+        """Show when a file is being generated."""
+        relative_path = file_path.split('/')[-2:] if '/' in file_path else [file_path]
+        display_path = '/'.join(relative_path)
+        
+        print(f"📝 Generated: {display_path}")
+        
+        if content_preview and self.verbose:
+            print("   Preview:")
+            for line in content_preview.split('\n')[:3]:
+                print(f"   │ {line}")
+            if len(content_preview.split('\n')) > 3:
+                print("   │ ...")
+    
+    def show_conversion_result(self, operation: str, success: bool, 
+                             files_generated: int = 0, warnings: List[str] = None) -> None:
+        """Show the result of a conversion operation."""
+        if success:
+            message = f"✅ {operation} completed successfully"
+            if files_generated > 0:
+                message += f" - Generated {files_generated} files"
+        else:
+            message = f"❌ {operation} failed"
+        
+        print(message)
+        
+        if warnings:
+            for warning in warnings:
+                print(f"   ⚠️  {warning}")
+    
+    def show_batch_summary(self, batch_name: str, items_processed: int, 
+                          items_successful: int, total_time: float) -> None:
+        """Show summary of batch processing."""
+        success_rate = (items_successful / items_processed * 100) if items_processed > 0 else 0
+        
+        print(f"📊 Batch '{batch_name}' Summary:")
+        print(f"   • Processed: {items_processed} items")
+        print(f"   • Successful: {items_successful} ({success_rate:.1f}%)")
+        print(f"   • Time taken: {total_time:.1f}s")
     
     def show_section_header(self, title: str, emoji: str = "📊") -> None:
         """Show a section header with emoji."""
@@ -81,6 +160,128 @@ class UserInterface:
         spaces = "   " * indent
         for item in items:
             print(f"{spaces}- {item}")
+    
+    def show_code_snippet(self, title: str, code: str, language: str = "python", max_lines: int = 15) -> None:
+        """Show a code snippet with syntax highlighting simulation."""
+        print(f"\n📄 {title}:")
+        print("   " + "─" * 60)
+        
+        lines = code.split('\n')
+        for i, line in enumerate(lines[:max_lines]):
+            line_num = f"{i+1:3d}"
+            print(f"   {line_num} │ {line}")
+        
+        if len(lines) > max_lines:
+            print(f"   ... │ ... ({len(lines) - max_lines} more lines)")
+        
+        print("   " + "─" * 60)
+    
+    def show_file_tree(self, title: str, file_paths: List[str], base_path: str = "") -> None:
+        """Show a file tree structure."""
+        print(f"\n🗂️  {title}:")
+        
+        # Organize files by directory
+        tree = {}
+        for file_path in file_paths:
+            if base_path and file_path.startswith(base_path):
+                rel_path = file_path[len(base_path):].lstrip('/')
+            else:
+                rel_path = file_path
+            
+            parts = rel_path.split('/')
+            current = tree
+            
+            for part in parts[:-1]:  # directories
+                if part not in current:
+                    current[part] = {}
+                current = current[part]
+            
+            # file
+            if parts:
+                current[parts[-1]] = None
+        
+        self._print_tree(tree, "   ")
+    
+    def show_comparison_table(self, title: str, comparisons: List[Dict[str, str]]) -> None:
+        """Show a comparison table."""
+        print(f"\n📊 {title}:")
+        print("   " + "─" * 70)
+        print(f"   {'Item':<25} {'Before (PHP)':<20} {'After (FastAPI)':<20}")
+        print("   " + "─" * 70)
+        
+        for comp in comparisons:
+            item = comp.get('item', '')[:24]
+            before = comp.get('before', '')[:19]
+            after = comp.get('after', '')[:19]
+            print(f"   {item:<25} {before:<20} {after:<20}")
+        
+        print("   " + "─" * 70)
+    
+    def show_validation_results(self, title: str, results: Dict[str, Any]) -> None:
+        """Show validation results."""
+        print(f"\n🔍 {title}:")
+        
+        status = results.get('status', 'unknown')
+        if status == 'passed':
+            print("   ✅ All validations passed")
+        elif status == 'failed':
+            print("   ❌ Validation failed")
+        elif status == 'warnings':
+            print("   ⚠️  Validation passed with warnings")
+        
+        issues = results.get('issues', [])
+        if issues:
+            print("   Issues found:")
+            for issue in issues[:5]:  # Show first 5 issues
+                severity = issue.get('severity', 'info')
+                description = issue.get('description', '')
+                icon = '❌' if severity == 'error' else '⚠️' if severity == 'warning' else 'ℹ️'
+                print(f"   {icon} {description}")
+            
+            if len(issues) > 5:
+                print(f"   ... and {len(issues) - 5} more issues")
+    
+    def _create_progress_bar(self, percentage: float, width: int = 20) -> str:
+        """Create a visual progress bar."""
+        filled = int(width * percentage / 100)
+        bar = '█' * filled + '░' * (width - filled)
+        return f"[{bar}]"
+    
+    def _print_tree(self, tree: Dict, prefix: str) -> None:
+        """Print a file tree structure recursively."""
+        items = list(tree.items())
+        for i, (name, subtree) in enumerate(items):
+            is_last = i == len(items) - 1
+            current_prefix = "└── " if is_last else "├── "
+            
+            if subtree is None:  # It's a file
+                icon = self._get_file_icon(name)
+                print(f"{prefix}{current_prefix}{icon} {name}")
+            else:  # It's a directory
+                print(f"{prefix}{current_prefix}📁 {name}/")
+                next_prefix = prefix + ("    " if is_last else "│   ")
+                self._print_tree(subtree, next_prefix)
+    
+    def _get_file_icon(self, filename: str) -> str:
+        """Get an appropriate icon for a file type."""
+        if filename.endswith('.py'):
+            return '🐍'
+        elif filename.endswith('.md'):
+            return '📄'
+        elif filename.endswith('.txt'):
+            return '📄'
+        elif filename.endswith('.json'):
+            return '⚙️'
+        elif filename.endswith('.yml') or filename.endswith('.yaml'):
+            return '⚙️'
+        elif filename == 'Dockerfile':
+            return '🐳'
+        elif filename.startswith('.env'):
+            return '🔧'
+        elif filename == '.gitignore':
+            return '📄'
+        else:
+            return '📄'
     
     def show_local_analysis_header(self) -> None:
         """Show header for local analysis results."""
@@ -321,11 +522,6 @@ class UserInterface:
         print("   • Verify the LLM provider configuration")
         print("   • Try again in a few moments")
         print("   • Switch to a different LLM provider")
-    
-    def show_generation_progress(self, current_file: str, total_files: int, current_index: int) -> None:
-        """Show file generation progress."""
-        percentage = (current_index / total_files) * 100 if total_files > 0 else 0
-        print(f"📝 Generating [{current_index}/{total_files}] ({percentage:.1f}%): {current_file}")
     
     def show_completion_summary(self, output_path: str, files_generated: List[str]) -> None:
         """Show conversion completion summary."""

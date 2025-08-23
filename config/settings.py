@@ -28,7 +28,7 @@ except ImportError:
 class LLMConfig:
     """LLM configuration settings."""
     provider: str = "gemini"  
-    model: str = "gemini-1.5-pro"
+    model: str = "gemini-2.0-flash"
     api_key: Optional[str] = None
     base_url: Optional[str] = None
     max_tokens: int = 4000

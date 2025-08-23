@@ -168,14 +168,21 @@ class AnthropicProvider(BaseLLMProvider):
 class GeminiProvider(BaseLLMProvider):
     """Google Gemini API provider."""
     
-    def __init__(self, api_key: str, model: str = "gemini-1.5-flash", **kwargs):
+    def __init__(self, api_key: str, model: str = "gemini-2.0-flash", **kwargs):
         super().__init__(api_key, model, **kwargs)
         self.base_url = kwargs.get('base_url', 'https://generativelanguage.googleapis.com/v1beta')
         
+        # Clean up base_url if it contains model path (common mistake)
+        if '/models/' in self.base_url and ':generateContent' in self.base_url:
+            print(f"Warning: base_url contains model path, cleaning it up...")
+            # Extract just the base API URL
+            parts = self.base_url.split('/models/')
+            self.base_url = parts[0]
+            print(f"Cleaned base_url: {self.base_url}")
+        
         # Validate model name
         valid_models = [
-            'gemini-pro', 'gemini-1.5-pro', 'gemini-1.5-flash', 
-            'gemini-1.0-pro', 'gemini-1.0-pro-001'
+             'gemini-2.0-flash'
         ]
         
         if self.model not in valid_models:
@@ -216,11 +223,13 @@ class GeminiProvider(BaseLLMProvider):
         }
         
         try:
+            # Construct the correct URL
             url = f'{self.base_url}/models/{self.model}:generateContent'
             params = {'key': self.api_key}
             
             print(f"DEBUG: Making request to: {url}")
             print(f"DEBUG: Model: {self.model}")
+            print(f"DEBUG: Base URL: {self.base_url}")
             print(f"DEBUG: API Key length: {len(self.api_key) if self.api_key else 0}")
             
             response = requests.post(
@@ -242,6 +251,11 @@ class GeminiProvider(BaseLLMProvider):
                 error_msg = "No response generated"
                 if 'error' in data:
                     error_msg = f"API Error: {data['error'].get('message', 'Unknown error')}"
+                elif 'promptFeedback' in data:
+                    # Handle content filtering
+                    feedback = data['promptFeedback']
+                    if 'blockReason' in feedback:
+                        error_msg = f"Content blocked: {feedback['blockReason']}"
                 return LLMResponse(
                     content="",
                     success=False,
@@ -266,6 +280,11 @@ class GeminiProvider(BaseLLMProvider):
                     error_data = e.response.json()
                     if 'error' in error_data:
                         error_msg = f"Gemini API error: {error_data['error'].get('message', str(e))}"
+                        # Add specific help for common errors
+                        if 'API_KEY_INVALID' in error_msg:
+                            error_msg += "\nPlease check your API key in the .env file"
+                        elif 'not found' in error_msg.lower():
+                            error_msg += f"\nModel '{self.model}' may not exist or be available"
                 except:
                     pass
             return LLMResponse(
@@ -281,7 +300,6 @@ class GeminiProvider(BaseLLMProvider):
                 error_message=f"Unexpected error: {str(e)}",
                 provider='gemini'
             )
-
 
 class LLMClient:
     """Client for interacting with various LLM providers."""

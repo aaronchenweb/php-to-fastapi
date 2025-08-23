@@ -1,562 +1,703 @@
 # stages/generation_stage.py
-"""Stage 3: FastAPI Code Generation based on approved analysis and planning using modular generators."""
+"""Stage 3: FastAPI Code Generation with user review and transparency."""
 
 import os
 import json
-from pathlib import Path
 from typing import Dict, Any, List, Optional
+from pathlib import Path
 
 from config.settings import Settings
 from core.user_interface import UserInterface
 
-# Import from generators using the fixed structure
-from generators.shared import GeneratedFile, GenerationResult
-from generators.fastapi_generator import FastAPIGenerator
+# Import generators
+from generators.llm_assisted_generator import LLMAssistedGenerator
+from generators.code_batch_processor import CodeBatchProcessor
+from generators.endpoint_converter import EndpointConverter
+from generators.business_logic_translator import BusinessLogicTranslator
+from generators.auth_converter import AuthConverter
+from generators.model_generator import ModelGenerator
+from generators.schema_generator import SchemaGenerator
+from generators.project_assembler import ProjectAssembler
 
 
 class GenerationStage:
-    """Handles the generation stage of PHP to FastAPI conversion using modular generators."""
+    """Handles the generation stage of PHP to FastAPI conversion with user review."""
     
     def __init__(self, settings: Settings, ui: UserInterface):
         self.settings = settings
         self.ui = ui
         
-        # Initialize the main generator (which will handle sub-generators internally)
-        self.fastapi_generator = FastAPIGenerator()
+        # Initialize generators
+        self.llm_generator = LLMAssistedGenerator(settings, ui)
+        self.batch_processor = CodeBatchProcessor(settings, ui)
+        self.endpoint_converter = EndpointConverter(settings, ui)
+        self.business_logic_translator = BusinessLogicTranslator(settings, ui)
+        self.auth_converter = AuthConverter(settings, ui)
+        self.model_generator = ModelGenerator(settings, ui)
+        self.schema_generator = SchemaGenerator(settings, ui)
+        self.project_assembler = ProjectAssembler(settings, ui)
         
-        # Track generation progress
-        self.generated_files = []
-        self.generation_stats = {
-            'total_files': 0,
-            'total_lines': 0,
-            'errors': 0,
-            'warnings': 0
+        # Track generated files and results for final summary
+        self.generation_results = {
+            'structure_files': [],
+            'auth_files': [],
+            'model_files': [],
+            'schema_files': [],
+            'endpoint_files': [],
+            'logic_files': [],
+            'config_files': [],
+            'main_files': [],
+            'support_files': [],
+            'total_files': 0
         }
     
     def generate_fastapi_project(self, 
                                 analysis_result: Dict[str, Any],
-                                planning_result: Dict[str, Any],
+                                planning_result: Dict[str, Any], 
                                 output_path: str) -> List[str]:
         """
-        Generate complete FastAPI project based on approved planning using modular generators.
+        Generate complete FastAPI project with user review at each stage.
         
         Args:
             analysis_result: Results from analysis stage
-            planning_result: Results from planning stage  
-            output_path: Path where project will be generated
+            planning_result: Results from planning stage
+            output_path: Output directory path
             
         Returns:
             List of generated file paths
         """
         try:
-            self.ui.info("🎯 Starting modular code generation...")
-            self.generated_files = []
+            self.ui.info("🚀 Starting FastAPI code generation with user review...")
             
-            # Display generation plan
-            self._display_generation_plan(analysis_result, planning_result)
+            # Show generation plan overview
+            self._show_generation_plan(analysis_result, planning_result)
             
-            # Use FastAPIGenerator as the main coordinator
-            self.ui.show_progress("Generating FastAPI project using modular generators...")
-            generation_result = self.fastapi_generator.generate_project(
-                analysis_result=analysis_result,
-                planning_result=planning_result,
-                output_path=output_path
-            )
+            # if not self.ui.confirm("📋 Proceed with this generation plan?", default=True):
+            #     self.ui.warning("Generation cancelled by user.")
+            #     return []
             
-            if not generation_result.success:
-                self.ui.error("❌ FastAPI project generation failed!")
-                for error in generation_result.errors:
-                    self.ui.error(f"   • {error}")
-                return []
+            all_generated_files = []
             
-            # Convert GeneratedFile objects to file paths for return
-            generated_file_paths = [
-                os.path.join(output_path, generated_file.path) 
-                for generated_file in generation_result.generated_files
-            ]
+            # Phase 1: Project Structure
+            if not self._execute_structure_phase(planning_result, output_path, all_generated_files):
+                return all_generated_files
             
-            # Update internal tracking
-            self.generated_files = generated_file_paths
-            self.generation_stats.update({
-                'total_files': generation_result.total_files,
-                'total_lines': generation_result.total_lines,
-                'errors': len(generation_result.errors),
-                'warnings': len(generation_result.warnings)
-            })
+            # Phase 2: Authentication System
+            if not self._execute_auth_phase(analysis_result, planning_result, output_path, all_generated_files):
+                return all_generated_files
             
-            # Display generation results
-            self._display_generation_results(generation_result, output_path)
+            # Phase 3: Database Models
+            if not self._execute_models_phase(analysis_result, planning_result, output_path, all_generated_files):
+                return all_generated_files
             
-            # Generate additional files based on settings
-            additional_files = self._generate_additional_files(
-                output_path, analysis_result, planning_result
-            )
-            generated_file_paths.extend(additional_files)
+            # Phase 4: Pydantic Schemas
+            if not self._execute_schemas_phase(analysis_result, planning_result, output_path, all_generated_files):
+                return all_generated_files
             
-            # Create backup of original PHP project if requested
-            if self.settings.conversion.backup_original:
-                self._create_php_backup(analysis_result)
+            # Phase 5: API Endpoints
+            if not self._execute_endpoints_phase(analysis_result, planning_result, output_path, all_generated_files):
+                return all_generated_files
             
-            # Generate post-generation documentation
-            self._generate_post_generation_docs(output_path, analysis_result, planning_result)
+            # Phase 6: Business Logic
+            if not self._execute_logic_phase(analysis_result, planning_result, output_path, all_generated_files):
+                return all_generated_files
             
-            self.ui.success(f"✅ Successfully generated {len(generated_file_paths)} files!")
-            return generated_file_paths
+            # Phase 7: Configuration
+            if not self._execute_config_phase(analysis_result, planning_result, output_path, all_generated_files):
+                return all_generated_files
+            
+            # Phase 8: Main Application
+            if not self._execute_main_app_phase(analysis_result, planning_result, output_path, all_generated_files):
+                return all_generated_files
+            
+            # Phase 9: Supporting Files
+            if not self._execute_support_phase(analysis_result, planning_result, output_path, all_generated_files):
+                return all_generated_files
+            
+            # Final summary and review
+            self._show_generation_summary(all_generated_files, output_path)
+            
+            self.ui.success(f"✅ Generated {len(all_generated_files)} files successfully!")
+            return all_generated_files
             
         except Exception as e:
-            self.ui.error(f"Code generation failed: {str(e)}")
+            self.ui.error(f"Generation failed: {str(e)}")
             import traceback
             self.ui.debug(f"Traceback: {traceback.format_exc()}")
             return []
     
-    def _display_generation_plan(self, 
-                               analysis_result: Dict[str, Any], 
-                               planning_result: Dict[str, Any]) -> None:
-        """Display what will be generated."""
+    def _show_generation_plan(self, analysis_result: Dict[str, Any], 
+                             planning_result: Dict[str, Any]) -> None:
+        """Show the generation plan to the user."""
         self.ui.info("\n" + "=" * 80)
-        self.ui.info("📋 GENERATION PLAN")
+        self.ui.info("📋 FASTAPI GENERATION PLAN")
         self.ui.info("=" * 80)
-        
-        # Show project structure overview
-        project_structure = planning_result.get('project_structure', {})
-        directories = project_structure.get('main_directories', [])
-        
-        self.ui.info(f"🏗️  PROJECT STRUCTURE:")
-        self.ui.info(f"   • Organization: Standard FastAPI structure")
-        self.ui.info(f"   • Core Directories: app/, tests/, alembic/")
+    
+    def _show_project_structure_preview(self, output_path: str) -> None:
+        """Show a preview of the generated project structure."""
+        try:
+            self.ui.info(f"\n🏗️  PROJECT STRUCTURE PREVIEW:")
+            self.ui.info("   " + "=" * 50)
+            
+            # Walk through the generated structure
+            for root, dirs, files in os.walk(output_path):
+                # Skip hidden directories and __pycache__
+                dirs[:] = [d for d in dirs if not d.startswith('.') and d != '__pycache__']
+                
+                level = root.replace(output_path, '').count(os.sep)
+                indent = '   ' + '  ' * level
+                folder_name = os.path.basename(root) or os.path.basename(output_path)
+                
+                if level <= 3:  # Only show first 3 levels
+                    self.ui.info(f"{indent}📁 {folder_name}/")
+                    
+                    # Show files in this directory
+                    file_indent = '   ' + '  ' * (level + 1)
+                    for file in sorted(files):
+                        if not file.startswith('.') and not file.endswith('.pyc'):
+                            if level <= 2:  # Only show files for first 2 levels
+                                icon = self._get_file_icon(file)
+                                self.ui.info(f"{file_indent}{icon} {file}")
+            
+            self.ui.info("   " + "=" * 50)
+            
+        except Exception as e:
+            self.ui.debug(f"Failed to show project structure: {str(e)}")
+    
+    def _get_file_icon(self, filename: str) -> str:
+        """Get an appropriate icon for a file type."""
+        if filename.endswith('.py'):
+            return '🐍'
+        elif filename.endswith('.md'):
+            return '📄'
+        elif filename.endswith('.txt'):
+            return '📄'
+        elif filename.endswith('.json'):
+            return '⚙️'
+        elif filename.endswith('.yml') or filename.endswith('.yaml'):
+            return '⚙️'
+        elif filename == 'Dockerfile':
+            return '🐳'
+        elif filename.startswith('.env'):
+            return '🔧'
+        elif filename == '.gitignore':
+            return '📄'
+        else:
+            return '📄'
         
         # Show what will be generated
-        endpoint_analysis = analysis_result.get('endpoint_analysis', {})
-        database_analysis = analysis_result.get('database_analysis', {})
+        project_summary = analysis_result.get('project_summary', {})
+        endpoints_analysis = analysis_result.get('endpoints_analysis', {})
+        db_analysis = analysis_result.get('database_analysis', {})
         
-        self.ui.info(f"\n📁 FILES TO GENERATE:")
+        self.ui.info(f"🏗️  Original Framework: {project_summary.get('framework_detected', 'Unknown')}")
+        self.ui.info(f"🌐 API Endpoints: {endpoints_analysis.get('total_endpoints', 0)}")
+        self.ui.info(f"🗄️  Database Tables: {len(db_analysis.get('table_references', []))}")
+        self.ui.info(f"🔐 Authentication: {', '.join(endpoints_analysis.get('authentication_methods', ['None']))}")
         
-        endpoint_categories = endpoint_analysis.get('endpoint_categories', [])
-        if endpoint_categories:
-            self.ui.info(f"   • API Endpoints: {len(endpoint_categories)} categories")
-        else:
-            self.ui.info(f"   • API Endpoints: Example endpoints (no PHP endpoints found)")
-            
-        tables = database_analysis.get('tables', [])
-        if tables:
-            self.ui.info(f"   • Database Models: {len(tables)} tables")
-        else:
-            self.ui.info(f"   • Database Models: Example models")
-            
-        self.ui.info(f"   • Configuration Files: ~12 files")
+        self.ui.info(f"\n📦 GENERATION PHASES:")
+        phases = [
+            "1. Project Structure & Directories",
+            "2. Authentication System",
+            "3. Database Models (SQLAlchemy)",
+            "4. API Schemas (Pydantic)",
+            "5. API Endpoints (FastAPI)",
+            "6. Business Logic Services",
+            "7. Configuration Files",
+            "8. Main Application Setup",
+            "9. Supporting Files (Docker, tests, etc.)"
+        ]
         
-        if self.settings.conversion.generate_tests:
-            self.ui.info(f"   • Test Files: Basic test structure")
+        for phase in phases:
+            self.ui.info(f"   {phase}")
         
-        # Show dependency summary
-        dependency_conversion = planning_result.get('dependency_conversion', {})
-        requirements = dependency_conversion.get('requirements_txt', [])
-        if requirements:
-            self.ui.info(f"   • Dependencies: {len(requirements)} packages")
-        else:
-            self.ui.info(f"   • Dependencies: Standard FastAPI packages")
-        
+        self.ui.info("\n💡 You'll review each phase before proceeding to the next.")
         self.ui.info("=" * 80)
     
-    def _display_generation_results(self, 
-                                  generation_result: GenerationResult, 
-                                  output_path: str) -> None:
-        """Display generation results."""
-        self.ui.info("\n" + "=" * 80)
-        self.ui.info("🎉 GENERATION RESULTS")
-        self.ui.info("=" * 80)
-        
-        self.ui.success(f"✅ Generation Status: {'SUCCESS' if generation_result.success else 'FAILED'}")
-        self.ui.info(f"📁 Output Directory: {output_path}")
-        self.ui.info(f"📄 Files Generated: {generation_result.total_files}")
-        self.ui.info(f"📝 Lines of Code: {generation_result.total_lines}")
-        
-        if generation_result.errors:
-            self.ui.info(f"❌ Errors: {len(generation_result.errors)}")
-            for error in generation_result.errors:
-                self.ui.error(f"   • {error}")
-        
-        if generation_result.warnings:
-            self.ui.info(f"⚠️  Warnings: {len(generation_result.warnings)}")
-            for warning in generation_result.warnings:
-                self.ui.warning(f"   • {warning}")
-        
-        # Show file breakdown by type
-        file_types = {}
-        for file in generation_result.generated_files:
-            file_type = file.file_type
-            file_types[file_type] = file_types.get(file_type, 0) + 1
-        
-        if file_types:
-            self.ui.info(f"\n📊 FILES BY TYPE:")
-            for file_type, count in sorted(file_types.items()):
-                self.ui.info(f"   • {file_type}: {count} files")
-        
-        # Show generated files if verbose
-        if self.ui.verbose and generation_result.generated_files:
-            self.ui.info(f"\n📋 GENERATED FILES:")
-            for file in generation_result.generated_files:
-                self.ui.info(f"   • {file.path} - {file.description}")
-        
-        self.ui.info("=" * 80)
-    
-    def _generate_additional_files(self, 
-                                 output_path: str,
-                                 analysis_result: Dict[str, Any], 
-                                 planning_result: Dict[str, Any]) -> List[str]:
-        """Generate additional files based on settings and requirements."""
-        additional_files = []
+    def _execute_structure_phase(self, planning_result: Dict[str, Any], 
+                                output_path: str, all_files: List[str]) -> bool:
+        """Execute Phase 1: Project Structure."""
+        self.ui.show_progress("📁 Phase 1: Creating project structure...")
         
         try:
-            # Generate development requirements if needed
-            if self.settings.conversion.generate_tests:
-                dev_requirements_content = self._generate_dev_requirements(planning_result)
-                dev_req_path = os.path.join(output_path, "requirements-dev.txt")
-                self._write_file(dev_req_path, dev_requirements_content)
-                additional_files.append(dev_req_path)
-                self.ui.debug("Generated requirements-dev.txt")
+            structure_files = self.project_assembler.create_directory_structure(
+                planning_result, output_path
+            )
             
-            # Generate Makefile for common tasks
-            makefile_content = self._generate_makefile(analysis_result, planning_result)
-            makefile_path = os.path.join(output_path, "Makefile")
-            self._write_file(makefile_path, makefile_content)
-            additional_files.append(makefile_path)
-            self.ui.debug("Generated Makefile")
+            if structure_files:
+                self.generation_results['structure_files'] = structure_files
+                all_files.extend(structure_files)
+                
+                self._show_phase_results("Project Structure", structure_files, 
+                                       "Created FastAPI project directory structure")
+                
+                if not self.ui.confirm("✅ Approve project structure and continue?", default=True):
+                    return False
             
-            # Generate pyproject.toml for modern Python tooling
-            pyproject_content = self._generate_pyproject_toml(analysis_result, planning_result)
-            pyproject_path = os.path.join(output_path, "pyproject.toml")
-            self._write_file(pyproject_path, pyproject_content)
-            additional_files.append(pyproject_path)
-            self.ui.debug("Generated pyproject.toml")
+            return True
             
         except Exception as e:
-            self.ui.warning(f"Failed to generate some additional files: {str(e)}")
-        
-        return additional_files
+            self.ui.error(f"Failed to create project structure: {str(e)}")
+            return False
     
-    def _generate_dev_requirements(self, planning_result: Dict[str, Any]) -> str:
-        """Generate development requirements file."""
-        content = """# Development Dependencies
-# Install with: pip install -r requirements-dev.txt
-
-# Testing
-pytest>=7.4.3
-pytest-asyncio>=0.21.1
-pytest-cov>=4.1.0
-httpx>=0.25.2
-
-# Code quality
-black>=23.11.0
-isort>=5.12.0
-flake8>=6.1.0
-mypy>=1.7.1
-
-# Pre-commit hooks
-pre-commit>=3.6.0
-
-# Documentation
-sphinx>=7.2.6
-sphinx-rtd-theme>=1.3.0
-
-# Development utilities
-watchdog>=3.0.0
-python-dotenv>=1.0.0
-"""
+    def _execute_auth_phase(self, analysis_result: Dict[str, Any], 
+                           planning_result: Dict[str, Any], 
+                           output_path: str, all_files: List[str]) -> bool:
+        """Execute Phase 2: Authentication System."""
+        self.ui.show_progress("🔐 Phase 2: Converting authentication system...")
         
-        return content.strip()
-    
-    def _generate_makefile(self, 
-                         analysis_result: Dict[str, Any], 
-                         planning_result: Dict[str, Any]) -> str:
-        """Generate Makefile for common development tasks."""
-        content = """# Makefile for FastAPI project
-# Generated from PHP to FastAPI conversion
-
-.PHONY: help install install-dev test lint format run clean
-
-help:  ## Show this help message
-	@echo "Available commands:"
-	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "  \\033[36m%-20s\\033[0m %s\\n", $$1, $$2}'
-
-install:  ## Install production dependencies
-	pip install -r requirements.txt
-
-install-dev:  ## Install development dependencies
-	pip install -r requirements.txt
-	pip install -r requirements-dev.txt
-
-test:  ## Run tests
-	pytest
-
-test-cov:  ## Run tests with coverage
-	pytest --cov=app --cov-report=html --cov-report=term
-
-lint:  ## Run linting
-	flake8 app tests
-	mypy app
-
-format:  ## Format code
-	black app tests
-	isort app tests
-
-run:  ## Run development server
-	uvicorn main:app --reload --host 0.0.0.0 --port 8000
-
-clean:  ## Clean up temporary files
-	find . -type d -name __pycache__ -delete
-	find . -type f -name "*.pyc" -delete
-	find . -type f -name "*.pyo" -delete
-	rm -rf htmlcov/
-	rm -rf .pytest_cache/
-	rm -rf .mypy_cache/
-"""
-        
-        return content.strip()
-    
-    def _generate_pyproject_toml(self, 
-                               analysis_result: Dict[str, Any], 
-                               planning_result: Dict[str, Any]) -> str:
-        """Generate pyproject.toml for modern Python tooling."""
-        project_info = analysis_result.get('project_info', {})
-        project_name = project_info.get('name', 'fastapi-app')
-        
-        content = f"""[build-system]
-requires = ["hatchling"]
-build-backend = "hatchling.build"
-
-[project]
-name = "{project_name}"
-version = "1.0.0"
-description = "FastAPI application converted from PHP"
-readme = "README.md"
-requires-python = ">=3.8"
-
-[tool.black]
-line-length = 88
-target-version = ['py38']
-
-[tool.isort]
-profile = "black"
-multi_line_output = 3
-line_length = 88
-
-[tool.mypy]
-python_version = "3.8"
-check_untyped_defs = true
-disallow_any_generics = true
-
-[tool.pytest.ini_options]
-minversion = "6.0"
-addopts = "-ra -q --strict-markers"
-testpaths = ["tests"]
-"""
-        
-        return content.strip()
-    
-    def _create_php_backup(self, analysis_result: Dict[str, Any]) -> None:
-        """Create backup of original PHP project."""
         try:
+            auth_info = analysis_result.get('endpoints_analysis', {}).get('authentication_methods', [])
+            
+            if not auth_info:
+                self.ui.info("ℹ️  No authentication detected, skipping auth generation")
+                return True
+            
+            auth_files = self.auth_converter.convert_auth_system(
+                auth_info, planning_result, output_path
+            )
+            
+            if auth_files:
+                self.generation_results['auth_files'] = auth_files
+                all_files.extend(auth_files)
+                
+                # Show generated auth code
+                self._show_auth_conversion_results(auth_files, auth_info)
+                
+                if not self.ui.confirm("✅ Approve authentication system and continue?", default=True):
+                    return False
+            
+            return True
+            
+        except Exception as e:
+            self.ui.error(f"Failed to generate auth system: {str(e)}")
+            return self.ui.confirm("⚠️  Continue without authentication system?", default=True)
+    
+    def _execute_models_phase(self, analysis_result: Dict[str, Any], 
+                             planning_result: Dict[str, Any], 
+                             output_path: str, all_files: List[str]) -> bool:
+        """Execute Phase 3: Database Models."""
+        self.ui.show_progress("🗄️  Phase 3: Generating database models...")
+        
+        try:
+            db_info = analysis_result.get('database_analysis', {})
+            
+            if not db_info.get('table_references'):
+                self.ui.info("ℹ️  No database tables detected, skipping model generation")
+                return True
+            
+            model_files = self.model_generator.generate_models(
+                db_info, planning_result, output_path
+            )
+            
+            if model_files:
+                self.generation_results['model_files'] = model_files
+                all_files.extend(model_files)
+                
+                # Show generated models
+                self._show_models_conversion_results(model_files, db_info)
+                
+                if not self.ui.confirm("✅ Approve database models and continue?", default=True):
+                    return False
+            
+            return True
+            
+        except Exception as e:
+            self.ui.error(f"Failed to generate database models: {str(e)}")
+            return self.ui.confirm("⚠️  Continue without database models?", default=True)
+    
+    def _execute_schemas_phase(self, analysis_result: Dict[str, Any], 
+                              planning_result: Dict[str, Any], 
+                              output_path: str, all_files: List[str]) -> bool:
+        """Execute Phase 4: Pydantic Schemas."""
+        self.ui.show_progress("📋 Phase 4: Generating Pydantic schemas...")
+        
+        try:
+            api_info = analysis_result.get('api_analysis', {})
+            
+            schema_files = self.schema_generator.generate_schemas(
+                api_info, planning_result, output_path
+            )
+            
+            if schema_files:
+                self.generation_results['schema_files'] = schema_files
+                all_files.extend(schema_files)
+                
+                # Show generated schemas
+                self._show_schemas_conversion_results(schema_files, api_info)
+                
+                if not self.ui.confirm("✅ Approve Pydantic schemas and continue?", default=True):
+                    return False
+            
+            return True
+            
+        except Exception as e:
+            self.ui.error(f"Failed to generate schemas: {str(e)}")
+            return self.ui.confirm("⚠️  Continue without schemas?", default=True)
+    
+    def _execute_endpoints_phase(self, analysis_result: Dict[str, Any], 
+                                planning_result: Dict[str, Any], 
+                                output_path: str, all_files: List[str]) -> bool:
+        """Execute Phase 5: API Endpoints."""
+        self.ui.show_progress("🌐 Phase 5: Converting API endpoints...")
+        
+        try:
+            api_analysis = analysis_result.get('api_analysis', {})
+            endpoints = api_analysis.get('endpoints_detail', [])
+            
+            if not endpoints:
+                self.ui.warning("No API endpoints found for conversion")
+                return True
+            
+            # Group endpoints for batch processing
+            endpoint_groups = self.batch_processor.group_endpoints_for_conversion(endpoints)
+            
+            endpoint_files = []
+            total_groups = len(endpoint_groups)
+            
+            for i, group in enumerate(endpoint_groups):
+                self.ui.show_generation_progress(
+                    f"Converting endpoint group: {group['name']}", 
+                    total_groups, i + 1
+                )
+                
+                group_files = self.endpoint_converter.convert_endpoint_group(
+                    group, analysis_result, planning_result, output_path
+                )
+                
+                if group_files:
+                    endpoint_files.extend(group_files)
+                    
+                    # Show conversion results for this group
+                    self._show_endpoint_group_results(group, group_files)
+                    
+                    if not self.ui.confirm(f"✅ Approve {group['name']} endpoints?", default=True):
+                        # User can choose to skip this group or stop
+                        if not self.ui.confirm("⚠️  Skip this group and continue?", default=True):
+                            return False
+            
+            if endpoint_files:
+                self.generation_results['endpoint_files'] = endpoint_files
+                all_files.extend(endpoint_files)
+                
+                self._show_endpoints_summary(endpoint_files, endpoint_groups)
+            
+            return True
+            
+        except Exception as e:
+            self.ui.error(f"Failed to convert API endpoints: {str(e)}")
+            return self.ui.confirm("⚠️  Continue without API endpoints?", default=True)
+    
+    def _execute_logic_phase(self, analysis_result: Dict[str, Any], 
+                            planning_result: Dict[str, Any], 
+                            output_path: str, all_files: List[str]) -> bool:
+        """Execute Phase 6: Business Logic."""
+        self.ui.show_progress("⚙️ Phase 6: Converting business logic...")
+        
+        try:
+            # Get PHP files for business logic conversion
             project_info = analysis_result.get('project_info', {})
-            php_root = project_info.get('root_path', '')
+            php_files = project_info.get('config_files', []) + project_info.get('entry_points', [])
             
-            if php_root and os.path.exists(php_root):
-                import shutil
-                from datetime import datetime
+            if not php_files:
+                self.ui.info("ℹ️  No business logic files found for conversion")
+                return True
+            
+            # Process business logic files in batches
+            logic_batches = self.batch_processor.create_logic_batches(
+                php_files, analysis_result
+            )
+            
+            logic_files = []
+            
+            for i, batch_group in enumerate(logic_batches):
+                self.ui.show_generation_progress(
+                    f"Converting logic batch: {batch_group.name}", 
+                    len(logic_batches), i + 1
+                )
                 
-                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                backup_path = f"{php_root}_backup_{timestamp}"
+                for batch in batch_group.batches:
+                    batch_files = self.business_logic_translator.convert_logic_batch(
+                        batch, analysis_result, planning_result, output_path
+                    )
+                    
+                    if batch_files:
+                        logic_files.extend(batch_files)
+                        
+                        # Show conversion results for this batch
+                        self._show_logic_batch_results(batch, batch_files)
+            
+            if logic_files:
+                self.generation_results['logic_files'] = logic_files
+                all_files.extend(logic_files)
                 
-                self.ui.show_progress(f"Creating backup of PHP project...")
-                shutil.copytree(php_root, backup_path, ignore=shutil.ignore_patterns(
-                    'vendor', 'node_modules', '.git', '*.log', 'cache', 'tmp'
-                ))
-                
-                self.ui.success(f"PHP project backed up to: {backup_path}")
-                
+                if not self.ui.confirm("✅ Approve business logic conversion and continue?", default=True):
+                    return False
+            
+            return True
+            
         except Exception as e:
-            self.ui.warning(f"Failed to create PHP backup: {str(e)}")
+            self.ui.error(f"Failed to convert business logic: {str(e)}")
+            return self.ui.confirm("⚠️  Continue without business logic?", default=True)
     
-    def _generate_post_generation_docs(self, 
-                                     output_path: str,
-                                     analysis_result: Dict[str, Any], 
-                                     planning_result: Dict[str, Any]) -> None:
-        """Generate post-generation documentation and instructions."""
+    def _execute_config_phase(self, analysis_result: Dict[str, Any], 
+                             planning_result: Dict[str, Any], 
+                             output_path: str, all_files: List[str]) -> bool:
+        """Execute Phase 7: Configuration."""
+        self.ui.show_progress("⚙️ Phase 7: Generating configuration...")
+        
         try:
-            # Generate setup instructions
-            setup_content = self._generate_setup_instructions(analysis_result, planning_result)
-            setup_path = os.path.join(output_path, "SETUP.md")
-            self._write_file(setup_path, setup_content)
+            config_strategy = planning_result.get('configuration_strategy', {})
             
-            self.ui.debug("Generated post-generation documentation")
+            config_files = self.project_assembler.generate_config_files(
+                config_strategy, analysis_result, output_path
+            )
+            
+            if config_files:
+                self.generation_results['config_files'] = config_files
+                all_files.extend(config_files)
+                
+                self._show_config_results(config_files, config_strategy)
+                
+                if not self.ui.confirm("✅ Approve configuration and continue?", default=True):
+                    return False
+            
+            return True
             
         except Exception as e:
-            self.ui.warning(f"Failed to generate post-generation docs: {str(e)}")
+            self.ui.error(f"Failed to generate configuration: {str(e)}")
+            return self.ui.confirm("⚠️  Continue without custom configuration?", default=True)
     
-    def _generate_setup_instructions(self, 
-                                   analysis_result: Dict[str, Any], 
-                                   planning_result: Dict[str, Any]) -> str:
-        """Generate detailed setup instructions."""
-        content = """# FastAPI Setup Instructions
-
-## Prerequisites
-
-- Python 3.8 or higher
-- pip (Python package manager)
-- Virtual environment tool (recommended)
-
-## Step-by-Step Setup
-
-### 1. Environment Setup
-
-```bash
-# Create virtual environment
-python -m venv venv
-
-# Activate virtual environment
-# On Linux/Mac:
-source venv/bin/activate
-# On Windows:
-venv\\Scripts\\activate
-```
-
-### 2. Install Dependencies
-
-```bash
-# Install production dependencies
-pip install -r requirements.txt
-
-# Install development dependencies (optional)
-pip install -r requirements-dev.txt
-```
-
-### 3. Configuration
-
-```bash
-# Copy environment template
-cp .env.example .env
-
-# Edit .env file with your settings
-nano .env  # or use your preferred editor
-```
-
-**Important:** Update these values in `.env`:
-- `SECRET_KEY`: Generate a secure random key (minimum 32 characters)
-- `DATABASE_URL`: Your database connection string
-- `JWT_SECRET_KEY`: Another secure random key for JWT tokens
-
-### 4. Database Setup
-
-```bash
-# Run database migrations
-alembic upgrade head
-```
-
-### 5. Run the Application
-
-```bash
-# Development mode (with auto-reload)
-uvicorn main:app --reload
-
-# Or using make
-make run
-```
-
-The API will be available at:
-- **Application:** http://localhost:8000
-- **API Documentation:** http://localhost:8000/docs
-- **Alternative Docs:** http://localhost:8000/redoc
-
-### 6. Verify Installation
-
-```bash
-# Check health endpoint
-curl http://localhost:8000/health
-
-# Run tests
-pytest
-```
-
-## Next Steps
-
-1. Review and customize the generated code
-2. Implement your specific business logic
-3. Add comprehensive tests
-4. Set up continuous integration/deployment
-5. Configure monitoring and logging
-"""
+    def _execute_main_app_phase(self, analysis_result: Dict[str, Any], 
+                               planning_result: Dict[str, Any], 
+                               output_path: str, all_files: List[str]) -> bool:
+        """Execute Phase 8: Main Application."""
+        self.ui.show_progress("🎯 Phase 8: Generating main application...")
         
-        return content.strip()
-    
-    def _write_file(self, file_path: str, content: str) -> None:
-        """Write content to file."""
         try:
-            Path(file_path).parent.mkdir(parents=True, exist_ok=True)
-            with open(file_path, 'w', encoding='utf-8') as f:
-                f.write(content)
+            main_files = self.project_assembler.generate_main_app(
+                analysis_result, planning_result, output_path
+            )
+            
+            if main_files:
+                self.generation_results['main_files'] = main_files
+                all_files.extend(main_files)
+                
+                self._show_main_app_results(main_files, analysis_result)
+                
+                if not self.ui.confirm("✅ Approve main application and continue?", default=True):
+                    return False
+            
+            return True
+            
         except Exception as e:
-            self.ui.error(f"Failed to write file {file_path}: {str(e)}")
-            raise
+            self.ui.error(f"Failed to generate main application: {str(e)}")
+            return False
     
-    def get_generation_stats(self) -> Dict[str, Any]:
-        """Get generation statistics."""
-        return {
-            'files_generated': len(self.generated_files),
-            'total_lines': self.generation_stats.get('total_lines', 0),
-            'errors': self.generation_stats.get('errors', 0),
-            'warnings': self.generation_stats.get('warnings', 0),
-            'file_paths': self.generated_files
-        }
+    def _execute_support_phase(self, analysis_result: Dict[str, Any], 
+                              planning_result: Dict[str, Any], 
+                              output_path: str, all_files: List[str]) -> bool:
+        """Execute Phase 9: Supporting Files."""
+        self.ui.show_progress("📄 Phase 9: Generating supporting files...")
+        
+        try:
+            support_files = self.project_assembler.generate_supporting_files(
+                analysis_result, planning_result, output_path
+            )
+            
+            if support_files:
+                self.generation_results['support_files'] = support_files
+                all_files.extend(support_files)
+                
+                self._show_support_files_results(support_files)
+                
+                if not self.ui.confirm("✅ Approve supporting files and finalize?", default=True):
+                    return False
+            
+            return True
+            
+        except Exception as e:
+            self.ui.error(f"Failed to generate supporting files: {str(e)}")
+            return self.ui.confirm("⚠️  Finalize without some supporting files?", default=True)
     
-    def display_final_instructions(self, output_path: str) -> None:
-        """Display final instructions to user."""
-        self.ui.info("\n" + "🎉" * 20)
-        self.ui.info("🎉 FASTAPI PROJECT GENERATED SUCCESSFULLY! 🎉")
-        self.ui.info("🎉" * 20)
+    # Result display methods
+    
+    def _show_phase_results(self, phase_name: str, files: List[str], description: str) -> None:
+        """Show results of a generation phase."""
+        self.ui.info(f"\n📋 {phase_name.upper()} RESULTS:")
+        self.ui.info(f"   {description}")
+        self.ui.info(f"   Generated {len(files)} files:")
         
-        self.ui.info(f"\n📁 Your FastAPI project is ready at: {output_path}")
+        for file_path in files[:5]:  # Show first 5 files
+            relative_path = os.path.relpath(file_path) if os.path.exists(file_path) else file_path
+            self.ui.info(f"   • {relative_path}")
         
-        self.ui.info("\n🚀 NEXT STEPS:")
-        self.ui.info("1. Navigate to the project directory:")
-        self.ui.info(f"   cd {output_path}")
+        if len(files) > 5:
+            self.ui.info(f"   • ... and {len(files) - 5} more files")
+    
+    def _show_auth_conversion_results(self, auth_files: List[str], auth_info: List[str]) -> None:
+        """Show authentication conversion results."""
+        self.ui.info(f"\n🔐 AUTHENTICATION SYSTEM GENERATED:")
+        self.ui.info(f"   Detected methods: {', '.join(auth_info)}")
+        self.ui.info(f"   Generated {len(auth_files)} authentication files:")
         
-        self.ui.info("\n2. Set up your environment:")
-        self.ui.info("   python -m venv venv")
-        self.ui.info("   source venv/bin/activate  # On Windows: venv\\Scripts\\activate")
+        for file_path in auth_files:
+            file_name = os.path.basename(file_path)
+            self.ui.info(f"   • {file_name}")
+            
+            # Show a snippet of key files
+            if 'deps.py' in file_name and os.path.exists(file_path):
+                self._show_file_snippet(file_path, "Authentication Dependencies")
+            elif 'auth.py' in file_name and 'routes' in file_path and os.path.exists(file_path):
+                self._show_file_snippet(file_path, "Auth Routes")
+    
+    def _show_models_conversion_results(self, model_files: List[str], db_info: Dict[str, Any]) -> None:
+        """Show database models conversion results."""
+        table_refs = db_info.get('table_references', [])
         
-        self.ui.info("\n3. Install dependencies:")
-        self.ui.info("   pip install -r requirements.txt")
+        self.ui.info(f"\n🗄️  DATABASE MODELS GENERATED:")
+        self.ui.info(f"   Tables converted: {len(table_refs)}")
+        self.ui.info(f"   Generated {len(model_files)} model files:")
         
-        self.ui.info("\n4. Configure environment:")
-        self.ui.info("   cp .env.example .env")
-        self.ui.info("   # Edit .env with your database and secret keys")
+        for file_path in model_files:
+            file_name = os.path.basename(file_path)
+            self.ui.info(f"   • {file_name}")
+            
+            # Show snippet of a model file
+            if file_name.endswith('.py') and file_name != '__init__.py' and os.path.exists(file_path):
+                self._show_file_snippet(file_path, f"Model: {file_name}")
+                break  # Only show one example
+    
+    def _show_schemas_conversion_results(self, schema_files: List[str], api_info: Dict[str, Any]) -> None:
+        """Show Pydantic schemas conversion results."""
+        self.ui.info(f"\n📋 PYDANTIC SCHEMAS GENERATED:")
+        self.ui.info(f"   Generated {len(schema_files)} schema files:")
         
-        self.ui.info("\n5. Run database migrations (if using a database):")
-        self.ui.info("   alembic upgrade head")
+        for file_path in schema_files:
+            file_name = os.path.basename(file_path)
+            self.ui.info(f"   • {file_name}")
+            
+            # Show snippet of a schema file
+            if file_name.endswith('.py') and file_name != '__init__.py' and os.path.exists(file_path):
+                self._show_file_snippet(file_path, f"Schema: {file_name}")
+                break  # Only show one example
+    
+    def _show_endpoint_group_results(self, group: Dict[str, Any], files: List[str]) -> None:
+        """Show endpoint group conversion results."""
+        group_name = group.get('name', 'Unknown')
+        endpoints = group.get('endpoints', [])
         
-        self.ui.info("\n6. Start the application:")
-        self.ui.info("   uvicorn main:app --reload")
+        self.ui.info(f"\n🌐 ENDPOINT GROUP: {group_name.upper()}")
+        self.ui.info(f"   Converted {len(endpoints)} endpoints:")
         
-        self.ui.info("\n📚 DOCUMENTATION:")
-        self.ui.info("   • API Docs: http://localhost:8000/docs")
-        self.ui.info("   • Alternative Docs: http://localhost:8000/redoc")
-        self.ui.info("   • Setup Guide: SETUP.md")
+        for endpoint in endpoints[:3]:  # Show first 3 endpoints
+            method = endpoint.get('method', 'GET')
+            route = endpoint.get('route', '/')
+            self.ui.info(f"   • {method} {route}")
         
-        self.ui.info("\n✅ WHAT WAS GENERATED:")
-        self.ui.info(f"   • {self.generation_stats.get('total_files', 0)} files")
-        self.ui.info(f"   • {self.generation_stats.get('total_lines', 0)} lines of code")
-        self.ui.info("   • Complete FastAPI project structure")
-        self.ui.info("   • Database models and migrations")
-        self.ui.info("   • API endpoints with documentation")
-        self.ui.info("   • Configuration and deployment files")
-        if self.settings.conversion.generate_tests:
-            self.ui.info("   • Comprehensive test suite")
+        if len(endpoints) > 3:
+            self.ui.info(f"   • ... and {len(endpoints) - 3} more endpoints")
         
-        self.ui.info("\n📝 IMPORTANT REMINDERS:")
-        self.ui.info("   • Update SECRET_KEY and JWT_SECRET_KEY in .env")
-        self.ui.info("   • Review generated models for accuracy")
-        self.ui.info("   • Test all endpoints thoroughly")
-        self.ui.info("   • Add your specific business logic")
-        self.ui.info("   • Set up proper logging and monitoring")
+        # Show generated file snippet
+        if files and os.path.exists(files[0]):
+            self._show_file_snippet(files[0], f"FastAPI Routes: {group_name}")
+    
+    def _show_endpoints_summary(self, endpoint_files: List[str], endpoint_groups: List[Dict[str, Any]]) -> None:
+        """Show summary of all endpoint conversions."""
+        total_endpoints = sum(len(group.get('endpoints', [])) for group in endpoint_groups)
         
+        self.ui.info(f"\n🌐 ENDPOINTS CONVERSION SUMMARY:")
+        self.ui.info(f"   Total endpoints converted: {total_endpoints}")
+        self.ui.info(f"   Organized into {len(endpoint_groups)} route modules")
+        self.ui.info(f"   Generated {len(endpoint_files)} endpoint files")
+    
+    def _show_logic_batch_results(self, batch, files: List[str]) -> None:
+        """Show business logic batch conversion results."""
+        if self.ui.verbose:  # Only show detailed batch results in verbose mode
+            self.ui.debug(f"Converted logic batch: {batch.name}")
+            self.ui.debug(f"   Type: {batch.batch_type}")
+            self.ui.debug(f"   Lines: {batch.line_count}")
+            self.ui.debug(f"   Generated: {len(files)} files")
+    
+    def _show_config_results(self, config_files: List[str], config_strategy: Dict[str, Any]) -> None:
+        """Show configuration generation results."""
+        self.ui.info(f"\n⚙️ CONFIGURATION GENERATED:")
+        self.ui.info(f"   Generated {len(config_files)} config files")
+        
+        # Show key config files
+        for file_path in config_files:
+            if os.path.exists(file_path):
+                file_name = os.path.basename(file_path)
+                if file_name in ['config.py', '.env.example']:
+                    self.ui.info(f"   • {file_name}")
+    
+    def _show_main_app_results(self, main_files: List[str], analysis_result: Dict[str, Any]) -> None:
+        """Show main application generation results."""
+        self.ui.info(f"\n🎯 MAIN APPLICATION GENERATED:")
+        
+        for file_path in main_files:
+            if os.path.exists(file_path) and file_path.endswith('main.py'):
+                self._show_file_snippet(file_path, "FastAPI Main Application", lines=15)
+    
+    def _show_support_files_results(self, support_files: List[str]) -> None:
+        """Show supporting files generation results."""
+        self.ui.info(f"\n📄 SUPPORTING FILES GENERATED:")
+        self.ui.info(f"   Generated {len(support_files)} supporting files:")
+        
+        key_files = ['requirements.txt', 'README.md', 'Dockerfile', 'docker-compose.yml']
+        
+        for file_path in support_files:
+            file_name = os.path.basename(file_path)
+            if file_name in key_files:
+                self.ui.info(f"   • {file_name}")
+    
+    def _show_file_snippet(self, file_path: str, title: str, lines: int = 10) -> None:
+        """Show a snippet of a generated file."""
+        try:
+            if not os.path.exists(file_path):
+                return
+                
+            self.ui.info(f"\n📄 {title}:")
+            self.ui.info("   " + "-" * 50)
+            
+            with open(file_path, 'r', encoding='utf-8') as f:
+                file_lines = f.readlines()
+                
+                for i, line in enumerate(file_lines[:lines]):
+                    # Remove trailing newline and add indentation
+                    clean_line = line.rstrip('\n')
+                    self.ui.info(f"   {clean_line}")
+                
+                if len(file_lines) > lines:
+                    self.ui.info(f"   ... ({len(file_lines) - lines} more lines)")
+            
+            self.ui.info("   " + "-" * 50)
+            
+        except Exception as e:
+            self.ui.debug(f"Failed to show file snippet for {file_path}: {str(e)}")
+    
+    def _show_generation_summary(self, all_files: List[str], output_path: str) -> None:
+        """Show final generation summary."""
         self.ui.info("\n" + "=" * 80)
+        self.ui.info("📊 GENERATION SUMMARY")
+        self.ui.info("=" * 80)
+        
+        results = self.generation_results
+        
+        self.ui.info(f"📁 Project Structure:     {len(results['structure_files'])} files")
+        self.ui.info(f"🔐 Authentication:        {len(results['auth_files'])} files")
+        self.ui.info(f"🗄️  Database Models:       {len(results['model_files'])} files")
+        self.ui.info(f"📋 API Schemas:           {len(results['schema_files'])} files")
+        self.ui.info(f"🌐 API Endpoints:         {len(results['endpoint_files'])} files")
+        self.ui.info(f"⚙️ Business Logic:        {len(results['logic_files'])} files")
+        self.ui.info(f"⚙️ Configuration:         {len(results['config_files'])} files")
+        self.ui.info(f"🎯 Main Application:      {len(results['main_files'])} files")
+        self.ui.info(f"📄 Supporting Files:      {len(results['support_files'])} files")
+        
+        self.ui.info(f"\n📊 TOTAL FILES GENERATED: {len(all_files)}")
+        self.ui.info(f"📁 OUTPUT DIRECTORY:      {output_path}")
+        
+        # Show project structure preview
+        self._show_project_structure_preview(output_path)
+        
+        self.ui.info("=" * 80)
