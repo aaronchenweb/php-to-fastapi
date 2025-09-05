@@ -1,7 +1,8 @@
-# core/user_interface.py - Enhanced for generation stage with progress tracking
+# core/user_interface.py - Fixed version with all variables properly defined
 """User interface for interactive conversion process with enhanced generation stage display."""
 
 import json
+import os
 import sys
 from typing import Dict, Any, Optional, List
 from datetime import datetime
@@ -161,20 +162,133 @@ class UserInterface:
         for item in items:
             print(f"{spaces}- {item}")
     
-    def show_code_snippet(self, title: str, code: str, language: str = "python", max_lines: int = 15) -> None:
-        """Show a code snippet with syntax highlighting simulation."""
+    def show_code_snippet(self, title: str, code: str, language: str = "python", max_lines: int = 30) -> None:
+        """Show a code snippet with syntax highlighting simulation and line numbers."""
         print(f"\n📄 {title}:")
-        print("   " + "─" * 60)
+        print("   " + "─" * 70)
         
         lines = code.split('\n')
-        for i, line in enumerate(lines[:max_lines]):
+        display_lines = max_lines
+        
+        # In verbose mode, show more lines
+        if self.verbose:
+            display_lines = min(len(lines), 60)
+        
+        for i, line in enumerate(lines[:display_lines]):
             line_num = f"{i+1:3d}"
             print(f"   {line_num} │ {line}")
         
-        if len(lines) > max_lines:
-            print(f"   ... │ ... ({len(lines) - max_lines} more lines)")
+        if len(lines) > display_lines:
+            remaining = len(lines) - display_lines
+            print(f"   ... │ ... ({remaining} more lines)")
+            
+            # Offer to show more in verbose mode
+            if self.verbose and remaining > 0:
+                if self.confirm(f"📄 Show remaining {remaining} lines?", default=False):
+                    for i, line in enumerate(lines[display_lines:], start=display_lines):
+                        line_num = f"{i+1:3d}"
+                        print(f"   {line_num} │ {line}")
         
-        print("   " + "─" * 60)
+        print("   " + "─" * 70)
+    
+    def show_complete_file(self, title: str, file_path: str) -> None:
+        """Show complete file contents with line numbers."""
+        try:
+            if not os.path.exists(file_path):
+                self.warning(f"File not found: {file_path}")
+                return
+                
+            print(f"\n📄 {title} - Complete File:")
+            print("   " + "─" * 70)
+            print(f"   📁 {file_path}")
+            print("   " + "─" * 70)
+            
+            with open(file_path, 'r', encoding='utf-8') as f:
+                lines = f.readlines()
+                
+                for i, line in enumerate(lines):
+                    line_num = f"{i+1:3d}"
+                    clean_line = line.rstrip('\n')
+                    print(f"   {line_num} │ {clean_line}")
+            
+            print("   " + "─" * 70)
+            print(f"   📊 Total lines: {len(lines)}")
+            
+        except Exception as e:
+            self.error(f"Failed to show file {file_path}: {str(e)}")
+
+    def show_file_with_option(self, title: str, file_path: str, preview_lines: int = 25) -> None:
+        """Show file with option to view complete contents."""
+        try:
+            if not os.path.exists(file_path):
+                return
+                
+            with open(file_path, 'r', encoding='utf-8') as f:
+                lines = f.readlines()
+            
+            # Show preview
+            print(f"\n📄 {title}:")
+            print("   " + "─" * 70)
+            
+            display_lines = min(preview_lines, len(lines))
+            for i, line in enumerate(lines[:display_lines]):
+                line_num = f"{i+1:3d}"
+                clean_line = line.rstrip('\n')
+                print(f"   {line_num} │ {clean_line}")
+            
+            if len(lines) > preview_lines:
+                remaining = len(lines) - preview_lines
+                print(f"   ... │ ... ({remaining} more lines)")
+                
+                if self.confirm(f"📄 Show complete file ({len(lines)} total lines)?", default=False):
+                    print("   " + "─" * 70)
+                    for i, line in enumerate(lines[display_lines:], start=display_lines):
+                        line_num = f"{i+1:3d}"
+                        clean_line = line.rstrip('\n')
+                        print(f"   {line_num} │ {clean_line}")
+            
+            print("   " + "─" * 70)
+            
+        except Exception as e:
+            self.debug(f"Failed to show file {file_path}: {str(e)}")
+
+    def show_files_summary(self, title: str, files: List[str], base_path: str = "") -> None:
+        """Show a summary of generated files with sizes and types."""
+        print(f"\n📊 {title}:")
+        print("   " + "─" * 70)
+        
+        total_size = 0
+        file_types = {}
+        
+        for file_path in files:
+            if os.path.exists(file_path):
+                try:
+                    size = os.path.getsize(file_path)
+                    total_size += size
+                    
+                    # Get file info
+                    rel_path = os.path.relpath(file_path, base_path) if base_path else file_path
+                    file_name = os.path.basename(file_path)
+                    ext = os.path.splitext(file_name)[1] or 'no ext'
+                    file_types[ext] = file_types.get(ext, 0) + 1
+                    
+                    size_str = f"{size}B" if size < 1024 else f"{size//1024}KB"
+                    icon = self._get_file_icon(file_name)
+                    
+                    print(f"   {icon} {rel_path} ({size_str})")
+                    
+                except Exception as e:
+                    print(f"   ❌ {file_path} (error: {str(e)})")
+            else:
+                print(f"   ⚠️  {file_path} (not found)")
+        
+        print("   " + "─" * 70)
+        print(f"   📊 Summary: {len(files)} files, {total_size//1024}KB total")
+        
+        if file_types:
+            print("   📁 File types:", end=" ")
+            type_summary = [f"{ext}: {count}" for ext, count in sorted(file_types.items())]
+            print(", ".join(type_summary))
     
     def show_file_tree(self, title: str, file_paths: List[str], base_path: str = "") -> None:
         """Show a file tree structure."""

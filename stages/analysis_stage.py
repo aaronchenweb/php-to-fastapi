@@ -3,6 +3,7 @@
 
 import os
 import json
+import re
 from typing import Dict, Any, List, Optional
 from pathlib import Path
 
@@ -480,30 +481,103 @@ class AnalysisStage:
     
     
     def _analyze_api_endpoints(self, project_path: str) -> Dict[str, Any]:
-        """Analyze API endpoints using APIExtractor."""
+        """Analyze API endpoints using APIExtractor with enhanced detection."""
         try:
             # Extract endpoints from directory
             endpoints = self.api_extractor.extract_from_directory(project_path)
+            self.ui.debug(f"Found {len(endpoints)} raw endpoints")
             
-            # Analyze endpoints
+            # ADDITIONAL: Check specific router setup files
+            router_files = []
+            for root, dirs, files in os.walk(project_path):
+                dirs[:] = [d for d in dirs if d not in ['vendor', 'node_modules', '.git']]
+                for file in files:
+                    if file.endswith('.php'):
+                        file_path = os.path.join(root, file)
+                        try:
+                            with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                                content = f.read()
+                            
+                            # Look for router setup patterns
+                            if any(pattern in content.lower() for pattern in [
+                                '$this->router->', 'setuproutes', 'addroute', 'router->get', 'router->post'
+                            ]):
+                                router_files.append(file_path)
+                                self.ui.debug(f"Found router setup in: {file_path}")
+                                
+                                # Extract additional endpoints from this file
+                                additional_endpoints = self.api_extractor.extract_from_file(file_path)
+                                endpoints.extend(additional_endpoints)
+                                
+                        except Exception as e:
+                            continue
+            
+            self.ui.debug(f"Total endpoints after enhanced detection: {len(endpoints)}")
+            
+            # Analyze endpoints (MUST USE THIS RESULT)
             endpoint_analysis = self.api_extractor.analyze_endpoints(endpoints)
+            self.ui.debug(f"Endpoint analysis: {endpoint_analysis.get('total_endpoints', 0)} endpoints")
             
-            # Group endpoints
+            # Group endpoints (MUST USE THIS RESULT)
             endpoint_groups = self.api_extractor.group_endpoints(endpoints)
+            self.ui.debug(f"Created {len(endpoint_groups)} endpoint groups")
             
-            # Transform to expected format
-            analysis = {
-                'total_endpoints': len(endpoints),
-                'http_methods_used': list(endpoint_analysis['http_methods'].keys()),
-                'authentication_methods': self._extract_auth_methods(endpoints),
-                'endpoint_categories': [
-                    {
+            # Enhanced HTTP methods detection
+            http_methods_used = list(endpoint_analysis.get('http_methods', {}).keys())
+            if not http_methods_used and endpoints:
+                # Fallback: extract directly from endpoints
+                http_methods_used = list(set(ep.method.upper() for ep in endpoints if ep.method))
+            
+            # Build comprehensive categories
+            endpoint_categories = []
+            
+            # Add categories from groups
+            for group in endpoint_groups:
+                if group.endpoints:
+                    endpoint_categories.append({
                         'category': group.name,
                         'endpoints': [f"{ep.method} {ep.route}" for ep in group.endpoints],
                         'complexity': self._assess_endpoint_group_complexity(group)
-                    }
-                    for group in endpoint_groups
-                ],
+                    })
+            
+            # Add method-based categories
+            for method, count in endpoint_analysis.get('http_methods', {}).items():
+                if count > 0:
+                    method_endpoints = [ep for ep in endpoints if ep.method.upper() == method.upper()]
+                    endpoint_categories.append({
+                        'category': f'{method.lower()}_endpoints',
+                        'endpoints': [f"{ep.method} {ep.route}" for ep in method_endpoints],
+                        'complexity': self._assess_endpoint_group_complexity_by_count(count)
+                    })
+            
+            # Enhanced authentication detection
+            auth_methods = []
+            auth_count = endpoint_analysis.get('authentication_required', 0)
+            if auth_count > 0:
+                auth_methods.append('required')
+            
+            # Check for authentication patterns in the codebase
+            auth_patterns_found = []
+            for file_path in router_files:
+                try:
+                    with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                        content = f.read()
+                    if any(pattern in content.lower() for pattern in ['auth', 'jwt', 'token', 'middleware']):
+                        auth_patterns_found.append('middleware_based')
+                except:
+                    continue
+            
+            if auth_patterns_found:
+                auth_methods.extend(auth_patterns_found)
+            if not auth_methods:
+                auth_methods = ['none']
+            
+            # Return comprehensive analysis
+            analysis = {
+                'total_endpoints': len(endpoints),  # Use actual count
+                'http_methods_used': http_methods_used,
+                'authentication_methods': list(set(auth_methods)),
+                'endpoint_categories': endpoint_categories,
                 'endpoints_detail': [
                     {
                         'method': ep.method,
@@ -517,30 +591,116 @@ class AnalysisStage:
                     }
                     for ep in endpoints
                 ],
-                'complexity_score': endpoint_analysis['complexity_score'],
-                'complexity_level': endpoint_analysis['complexity_level']
+                'complexity_score': endpoint_analysis.get('complexity_score', len(endpoints) * 0.5),
+                'complexity_level': 'low' if len(endpoints) <= 5 else 'medium' if len(endpoints) <= 15 else 'high',
+                'response_formats': endpoint_analysis.get('response_formats', {}),
+                'parameter_statistics': endpoint_analysis.get('parameters', {}),
+                'middleware_usage': endpoint_analysis.get('middleware_usage', {}),
+                'file_distribution': endpoint_analysis.get('file_distribution', {}),
+                'router_files_found': len(router_files)
             }
             
+            self.ui.debug(f"Final API analysis: {analysis['total_endpoints']} endpoints, methods: {http_methods_used}")
             return analysis
             
         except Exception as e:
             self.ui.error(f"API endpoint analysis failed: {str(e)}")
-            return {'error': str(e), 'total_endpoints': 0}
+            import traceback
+            self.ui.debug(f"Traceback: {traceback.format_exc()}")
+            return {'error': str(e), 'total_endpoints': 0, 'http_methods_used': []}
+
+    def _assess_endpoint_group_complexity_by_count(self, count: int) -> str:
+        """Assess complexity based on endpoint count."""
+        if count <= 2:
+            return 'low'
+        elif count <= 5:
+            return 'medium'
+        else:
+            return 'high'
+
     
     def _analyze_database_usage(self, project_path: str) -> Dict[str, Any]:
-        """Analyze database usage using DatabaseAnalyzer."""
+        """Analyze database usage using DatabaseAnalyzer with improved detection."""
         try:
-            # Perform database analysis
+            # FORCE database detection by checking all PHP files directly
+            php_files = []
+            for root, dirs, files in os.walk(project_path):
+                dirs[:] = [d for d in dirs if d not in ['vendor', 'node_modules', '.git']]
+                for file in files:
+                    if file.endswith(('.php', '.phtml', '.inc')):
+                        php_files.append(os.path.join(root, file))
+            
+            # Check each PHP file for database patterns
+            detected_db_type = "unknown"
+            connection_info = {}
+            
+            for php_file in php_files:
+                try:
+                    with open(php_file, 'r', encoding='utf-8', errors='ignore') as f:
+                        content = f.read()
+                    
+                    # Direct pattern matching for your code structure
+                    if 'mysql:' in content.lower():
+                        detected_db_type = "mysql"
+                        self.ui.debug(f"Found MySQL reference in {php_file}")
+                        
+                        # Extract connection details
+                        db_name_match = re.search(r'\$dbname\s*=\s*[\'"]([^\'"]+)[\'"]', content)
+                        if db_name_match:
+                            connection_info['database'] = db_name_match.group(1)
+                        
+                        host_match = re.search(r'\$host\s*=\s*[\'"]([^\'"]+)[\'"]', content)
+                        if host_match:
+                            connection_info['host'] = host_match.group(1)
+                        
+                        user_match = re.search(r'\$username\s*=\s*[\'"]([^\'"]+)[\'"]', content)
+                        if user_match:
+                            connection_info['username'] = user_match.group(1)
+                        
+                        break
+                    elif 'pgsql:' in content.lower():
+                        detected_db_type = "postgresql"
+                        break
+                    elif 'sqlite:' in content.lower():
+                        detected_db_type = "sqlite"
+                        break
+                        
+                except Exception as e:
+                    self.ui.debug(f"Error reading {php_file}: {e}")
+                    continue
+            
+            # Perform database analysis using DatabaseAnalyzer
             db_analysis = self.database_analyzer.analyze_database_usage(project_path)
+            
+            # Override the database type if we detected it manually
+            if detected_db_type != "unknown":
+                # Update the connection type in the analysis
+                for conn in db_analysis.connections:
+                    conn.type = detected_db_type
+                    conn.host = connection_info.get('host', conn.host)
+                    conn.database = connection_info.get('database', conn.database)
+                    conn.username = connection_info.get('username', conn.username)
+            
+            # If no connections found, create one from our detection
+            if not db_analysis.connections and detected_db_type != "unknown":
+                from analyzers.database_analyzer import DatabaseConnection
+                connection = DatabaseConnection(
+                    name=f"{detected_db_type}_detected",
+                    type=detected_db_type,
+                    host=connection_info.get('host', 'localhost'),
+                    database=connection_info.get('database', 'unknown'),
+                    username=connection_info.get('username', 'root'),
+                    file_path=php_files[0] if php_files else ""
+                )
+                db_analysis.connections.append(connection)
             
             # Transform to expected format
             analysis = {
-                'database_type': self._determine_primary_db_type(db_analysis.connections),
+                'database_type': detected_db_type,  # Use our detected type
                 'orm_framework': db_analysis.orm_framework or 'none',
                 'connection_patterns': [
-                    f"{conn.type}://{conn.host}:{conn.port}/{conn.database}" 
+                    f"{conn.type}://{conn.host or 'localhost'}:{conn.port or 3306}/{conn.database or 'unknown'}" 
                     for conn in db_analysis.connections
-                    if conn.host and conn.port and conn.database
                 ],
                 'table_references': [table.name for table in db_analysis.tables],
                 'tables_estimated': len(db_analysis.tables),
@@ -551,13 +711,14 @@ class AnalysisStage:
                     'orm_queries': len([q for q in db_analysis.queries if q.query_type == 'eloquent'])
                 },
                 'relationships_complexity': db_analysis.complexity_metrics.get('complexity_level', 'low'),
-                'migration_challenges': db_analysis.recommendations[:3],  # Top 3 as challenges
+                'migration_challenges': db_analysis.recommendations[:3],
                 'models_detected': [
                     {'table': table.name, 'model_class': table.model_class}
                     for table in db_analysis.tables if table.model_class
                 ]
             }
             
+            self.ui.debug(f"Database analysis completed: type={detected_db_type}")
             return analysis
             
         except Exception as e:
@@ -686,13 +847,31 @@ class AnalysisStage:
     def _extract_auth_methods(self, endpoints) -> List[str]:
         """Extract authentication methods from endpoints."""
         auth_methods = set()
+        
         for endpoint in endpoints:
             if endpoint.authentication:
-                auth_methods.add(endpoint.authentication)
+                if endpoint.authentication == "required":
+                    auth_methods.add("required")
+                else:
+                    auth_methods.add(endpoint.authentication)
+            
+            # Check middleware for auth indicators
             for middleware in endpoint.middleware:
                 if any(auth_term in middleware.lower() for auth_term in ['auth', 'jwt', 'token']):
                     auth_methods.add('middleware_auth')
-        return list(auth_methods)
+            
+            # Check handler context for auth calls
+            if 'authenticate' in endpoint.handler.lower():
+                auth_methods.add('required')
+        
+        # If no specific auth found but we detect Auth::authenticate pattern, mark as required
+        if not auth_methods:
+            # Check if any endpoint handlers suggest authentication
+            has_auth_pattern = any('auth' in ep.handler.lower() or ep.authentication for ep in endpoints)
+            if has_auth_pattern:
+                auth_methods.add('required')
+        
+        return list(auth_methods) if auth_methods else ['none']
     
     def _assess_endpoint_group_complexity(self, group) -> str:
         """Assess complexity of an endpoint group."""

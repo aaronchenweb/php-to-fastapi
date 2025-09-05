@@ -2,7 +2,7 @@
 """Shared data classes for code generation."""
 
 from dataclasses import dataclass, field
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
 
 @dataclass
@@ -74,3 +74,38 @@ class RouteInfo:
     request_body_schema: Optional[str]
     response_schema: Optional[str]
     php_source: str
+
+@dataclass
+class PHPEndpoint:
+    """Represents a detected PHP endpoint."""
+    method: str
+    route: str
+    controller: str
+    action: str
+    requires_auth: bool = False
+    parameters: List[str] = field(default_factory=list)
+    php_code: Optional[str] = None
+    
+    
+@dataclass
+class AuthConfig:
+    """Configuration for authentication system."""
+    auth_type: str  # 'api_key', 'jwt', 'basic', 'oauth'
+    api_keys: Dict[str, str] = field(default_factory=dict)
+    header_name: str = "Authorization"
+    scheme_name: str = "Bearer"
+    
+    
+@dataclass
+class APIResponse:
+    """Standardized API response format."""
+    success_format: Dict[str, Any] = field(default_factory=lambda: {
+        "success": True,
+        "message": "",
+        "data": None
+    })
+    error_format: Dict[str, Any] = field(default_factory=lambda: {
+        "success": False,
+        "message": "",
+        "details": None
+    })

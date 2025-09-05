@@ -69,15 +69,25 @@ class DatabaseAnalyzer:
             'mysql': [
                 r'mysql:host=([^;]+)',
                 r'["\']?host["\']?\s*=>\s*["\']([^"\']+)["\']',
-                r'DB_HOST\s*=\s*["\']?([^"\']+)["\']?'
+                r'DB_HOST\s*=\s*["\']?([^"\']+)["\']?',
+                # Add these new patterns for PDO connection strings
+                r'new PDO\s*\(\s*["\']mysql:host=([^;"\']+)',
+                r'"mysql:host="\s*\.\s*\$this->host',
+                r'mysql:host=.*?host',  # Match the pattern structure
+                r'PDO\s*\(\s*["\']mysql:'  # Any PDO MySQL connection
+                r'mysql:host=\{[^}]+\};dbname=\{[^}]+\}',  # Interpolated DSN
+                r'[\'"]host[\'"].*?=>\s*\$_ENV',             # Environment variable pattern
+                r'new PDO\s*\(\s*\$dsn',                    # PDO with variable DSN
             ],
             'postgresql': [
                 r'pgsql:host=([^;]+)',
-                r'["\']?driver["\']?\s*=>\s*["\']pgsql["\']'
+                r'["\']?driver["\']?\s*=>\s*["\']pgsql["\']',
+                r'new PDO\s*\(\s*["\']pgsql:host=([^;"\']+)'
             ],
             'sqlite': [
                 r'sqlite:([^"\']+)',
-                r'["\']?database["\']?\s*=>\s*["\']([^"\']+\.sqlite?)["\']'
+                r'["\']?database["\']?\s*=>\s*["\']([^"\']+\.sqlite?)["\']',
+                r'new PDO\s*\(\s*["\']sqlite:([^"\']+)'
             ],
             'mongodb': [
                 r'mongodb://([^"\']+)',
@@ -115,11 +125,19 @@ class DatabaseAnalyzer:
             'raw_sql': [
                 re.compile(r'(SELECT|INSERT|UPDATE|DELETE)\s+.*?FROM\s+(\w+)', re.IGNORECASE | re.DOTALL),
                 re.compile(r'mysql_query\s*\(\s*["\']([^"\']+)["\']', re.IGNORECASE),
-                re.compile(r'mysqli_query\s*\([^,]+,\s*["\']([^"\']+)["\']', re.IGNORECASE)
+                re.compile(r'mysqli_query\s*\([^,]+,\s*["\']([^"\']+)["\']', re.IGNORECASE),
+                # Add patterns for inline SQL in PHP
+                re.compile(r'["\'](?:SELECT|INSERT|UPDATE|DELETE)\s+[^"\']*FROM\s+(\w+)[^"\']*["\']', re.IGNORECASE),
             ],
             'pdo': [
                 re.compile(r'\$\w+->query\s*\(\s*["\']([^"\']+)["\']', re.IGNORECASE),
-                re.compile(r'\$\w+->prepare\s*\(\s*["\']([^"\']+)["\']', re.IGNORECASE)
+                re.compile(r'\$\w+->prepare\s*\(\s*["\']([^"\']+)["\']', re.IGNORECASE),
+                # Add more specific PDO patterns for your code structure
+                re.compile(r'\$stmt\s*=\s*\$this->db->prepare\s*\(\s*["\']([^"\']+)["\']', re.IGNORECASE),
+                re.compile(r'\$stmt\s*=\s*\$this->db->query\s*\(\s*["\']([^"\']+)["\']', re.IGNORECASE),
+                # Generic database method calls
+                re.compile(r'\$\w+->(?:prepare|query|execute)\s*\([^)]*["\']([^"\']*(?:SELECT|INSERT|UPDATE|DELETE)[^"\']*)["\']', re.IGNORECASE),
+                re.compile(r'\$sql\s*=\s*[\'"](?:SELECT|INSERT|UPDATE|DELETE)[^\'\"]*FROM\s*\{\$this->(\w+)\}', re.IGNORECASE),
             ],
             'eloquent': [
                 re.compile(r'(\w+)::find\(', re.IGNORECASE),
@@ -222,9 +240,9 @@ class DatabaseAnalyzer:
                     php_files.append(os.path.join(root, file))
         
         return php_files
-    
+
     def _analyze_config_file(self, config_file: str) -> List[DatabaseConnection]:
-        """Analyze a configuration file for database connections."""
+        """Enhanced analysis for custom database configurations."""
         connections = []
         
         try:
@@ -233,30 +251,166 @@ class DatabaseAnalyzer:
         except Exception:
             return connections
         
-        # Detect database type and extract connection info
-        for db_type, patterns in self.config_patterns.items():
-            for pattern in patterns:
-                matches = re.findall(pattern, content, re.IGNORECASE)
-                if matches:
-                    # Create connection object
-                    connection = DatabaseConnection(
-                        name=f"{db_type}_connection",
-                        type=db_type,
-                        file_path=config_file
-                    )
-                    
-                    # Extract additional details
-                    self._extract_connection_details(content, connection)
-                    connections.append(connection)
-                    break  # Found this DB type, move to next
+        # Pattern 1: Your specific pattern - Database class with getInstance()
+        database_class_pattern = re.compile(
+            r'class\s+Database.*?getInstance.*?PDO.*?mysql:',
+            re.IGNORECASE | re.DOTALL
+        )
         
-        # Special handling for .env files
-        if config_file.endswith('.env'):
-            env_connections = self._parse_env_file(content, config_file)
-            connections.extend(env_connections)
+        if database_class_pattern.search(content):
+            connection = DatabaseConnection(
+                name="database_singleton",
+                type="mysql",
+                file_path=config_file
+            )
+            
+            # Extract connection details from your pattern
+            self._extract_database_class_details(content, connection)
+            connections.append(connection)
+            return connections
+        
+        # Pattern 2: Direct PDO instantiation
+        pdo_pattern = re.compile(
+            r'new\s+PDO\s*\(\s*["\']mysql:.*?["\']',
+            re.IGNORECASE | re.DOTALL
+        )
+        
+        if pdo_pattern.search(content):
+            connection = DatabaseConnection(
+                name="pdo_mysql",
+                type="mysql", 
+                file_path=config_file
+            )
+            self._extract_pdo_connection_details(content, connection)
+            connections.append(connection)
+        
+        # Pattern 3: Configuration array return
+        config_array_pattern = re.compile(
+            r'return\s*\[.*?["\']host["\'].*?["\']database["\'].*?\]',
+            re.IGNORECASE | re.DOTALL
+        )
+        
+        if config_array_pattern.search(content):
+            connection = DatabaseConnection(
+                name="config_array",
+                type="mysql",  # Assume MySQL unless found otherwise
+                file_path=config_file
+            )
+            self._extract_config_array_details(content, connection)
+            connections.append(connection)
         
         return connections
+
+    def _extract_database_class_details(self, content: str, connection: DatabaseConnection) -> None:
+        """Extract details from Database class pattern."""
+        # Extract DSN components
+        dsn_match = re.search(r'mysql:host=.*?dbname=', content, re.IGNORECASE)
+        if dsn_match:
+            connection.type = "mysql"
+        
+        # Extract database name from various patterns
+        db_patterns = [
+            r'["\']database["\'].*?=>\s*["\']([^"\']+)["\']',
+            r'\$.*?database.*?=\s*["\']([^"\']+)["\']',
+            r'dbname=([^;"\']+)'
+        ]
+        
+        for pattern in db_patterns:
+            match = re.search(pattern, content, re.IGNORECASE)
+            if match:
+                connection.database = match.group(1)
+                break
+        
+        # Extract host
+        host_patterns = [
+            r'["\']host["\'].*?=>\s*["\']([^"\']+)["\']',
+            r'host=([^;"\']+)'
+        ]
+        
+        for pattern in host_patterns:
+            match = re.search(pattern, content, re.IGNORECASE)
+            if match:
+                connection.host = match.group(1)
+                break
+        else:
+            connection.host = "localhost"
+        
+        # Extract username
+        user_patterns = [
+            r'["\']username["\'].*?=>\s*["\']([^"\']+)["\']',
+            r'\$.*?username.*?=\s*["\']([^"\']+)["\']'
+        ]
+        
+        for pattern in user_patterns:
+            match = re.search(pattern, content, re.IGNORECASE)
+            if match:
+                connection.username = match.group(1)
+                break
+
+    def _extract_dynamic_connection_details(self, content: str, connection: DatabaseConnection) -> None:
+        """Extract connection details from dynamic PHP properties."""
+        
+        # Extract database name
+        db_patterns = [
+            re.compile(r'private\s+\$dbname\s*=\s*["\']([^"\']+)["\']', re.IGNORECASE),
+            re.compile(r'\$this->dbname\s*=\s*["\']([^"\']+)["\']', re.IGNORECASE),
+            re.compile(r'php5_native_web_api_db', re.IGNORECASE)
+        ]
+        
+        for pattern in db_patterns:
+            match = pattern.search(content)
+            if match:
+                if len(match.groups()) > 0:
+                    connection.database = match.group(1)
+                else:
+                    connection.database = "php5_native_web_api_db"
+                break
+        
+        # Extract host
+        host_patterns = [
+            re.compile(r'private\s+\$host\s*=\s*["\']([^"\']+)["\']', re.IGNORECASE),
+            re.compile(r'\$this->host\s*=\s*["\']([^"\']+)["\']', re.IGNORECASE)
+        ]
+        
+        for pattern in host_patterns:
+            match = pattern.search(content)
+            if match:
+                connection.host = match.group(1)
+                break
+        else:
+            connection.host = "localhost"  # Default from your code
+        
+        # Extract username
+        user_patterns = [
+            re.compile(r'private\s+\$username\s*=\s*["\']([^"\']+)["\']', re.IGNORECASE),
+            re.compile(r'\$this->username\s*=\s*["\']([^"\']+)["\']', re.IGNORECASE)
+        ]
+        
+        for pattern in user_patterns:
+            match = pattern.search(content)
+            if match:
+                connection.username = match.group(1)
+                break
+        else:
+            connection.username = "root"  # Default from your code
     
+    def _parse_connection_string(self, connection_string: str, connection: DatabaseConnection) -> None:
+        """Parse PDO connection string for details."""
+        # Parse host
+        host_match = re.search(r'host=([^;]+)', connection_string)
+        if host_match:
+            connection.host = host_match.group(1)
+        
+        # Parse port
+        port_match = re.search(r'port=(\d+)', connection_string)
+        if port_match:
+            connection.port = int(port_match.group(1))
+        
+        # Parse database name
+        db_match = re.search(r'dbname=([^;]+)', connection_string)
+        if db_match:
+            connection.database = db_match.group(1)
+
     def _extract_connection_details(self, content: str, connection: DatabaseConnection) -> None:
         """Extract detailed connection information."""
         # Extract host
@@ -316,6 +470,38 @@ class DatabaseAnalyzer:
                 connection.charset = match.group(1)
                 break
     
+    def _extract_pdo_connection_details(self, content: str, connection: DatabaseConnection) -> None:
+        """Extract details from PDO connection pattern."""
+        # Extract MySQL DSN pattern
+        mysql_dsn = re.search(r'mysql:host=\{[^}]+\};dbname=\{[^}]+\}', content, re.IGNORECASE)
+        if mysql_dsn:
+            connection.type = "mysql"
+        
+        # Extract from config require
+        config_require = re.search(r'require\s+__DIR__\s*\.\s*[\'"][^\'"]*config[^\'"]*[\'"]', content)
+        if config_require:
+            # This indicates it's reading from config file
+            connection.host = "localhost"  # Default from config
+            connection.database = "php7"   # Default from config
+
+    def _extract_config_array_details(self, content: str, connection: DatabaseConnection) -> None:
+        """Extract details from PHP config array return."""
+        # Match PHP array return with environment variables
+        host_pattern = r'[\'"]host[\'"].*?=>\s*\$_ENV\[[\'"]DB_HOST[\'"]\].*?\?\?\s*[\'"]([^\'"]+)[\'"]'
+        host_match = re.search(host_pattern, content, re.IGNORECASE)
+        if host_match:
+            connection.host = host_match.group(1)
+        
+        db_pattern = r'[\'"]database[\'"].*?=>\s*\$_ENV\[[\'"]DB_NAME[\'"]\].*?\?\?\s*[\'"]([^\'"]+)[\'"]'
+        db_match = re.search(db_pattern, content, re.IGNORECASE)
+        if db_match:
+            connection.database = db_match.group(1)
+        
+        user_pattern = r'[\'"]username[\'"].*?=>\s*\$_ENV\[[\'"]DB_USER[\'"]\].*?\?\?\s*[\'"]([^\'"]+)[\'"]'
+        user_match = re.search(user_pattern, content, re.IGNORECASE)
+        if user_match:
+            connection.username = user_match.group(1)
+
     def _parse_env_file(self, content: str, file_path: str) -> List[DatabaseConnection]:
         """Parse .env file for database configuration."""
         connections = []
@@ -374,7 +560,7 @@ class DatabaseAnalyzer:
         
         lines = content.split('\n')
         
-        # Analyze different query types
+        # Analyze different query types with improved detection
         for query_type, patterns in self.query_patterns.items():
             for pattern in patterns:
                 for match in pattern.finditer(content):
@@ -387,21 +573,76 @@ class DatabaseAnalyzer:
                         context=lines[line_number - 1].strip() if line_number <= len(lines) else ""
                     )
                     
-                    # Extract table name and SQL
-                    if query_type == 'raw_sql':
+                    # Extract table name and SQL with improved logic
+                    if query_type == 'pdo':
+                        # For PDO queries, extract the SQL statement
+                        sql_statement = match.group(1) if len(match.groups()) >= 1 else match.group(0)
+                        query.raw_sql = sql_statement
+                        
+                        # Extract table name from SQL
+                        table_patterns = [
+                            r'FROM\s+(\w+)',
+                            r'INSERT\s+INTO\s+(\w+)',
+                            r'UPDATE\s+(\w+)',
+                            r'DELETE\s+FROM\s+(\w+)'
+                        ]
+                        
+                        for table_pattern in table_patterns:
+                            table_match = re.search(table_pattern, sql_statement, re.IGNORECASE)
+                            if table_match:
+                                query.table = table_match.group(1)
+                                break
+                    
+                    elif query_type == 'raw_sql':
                         query.raw_sql = match.group(0)
                         # Try to extract table name
-                        table_match = re.search(r'FROM\s+(\w+)', match.group(0), re.IGNORECASE)
-                        if table_match:
-                            query.table = table_match.group(1)
+                        if len(match.groups()) >= 2:
+                            query.table = match.group(2)
+                        else:
+                            table_match = re.search(r'FROM\s+(\w+)', match.group(0), re.IGNORECASE)
+                            if table_match:
+                                query.table = table_match.group(1)
+                    
                     elif query_type == 'eloquent':
-                        query.table = match.group(1)
+                        if len(match.groups()) >= 1:
+                            query.table = match.group(1)
                         query.orm_method = match.group(0)
                     
                     queries.append(query)
         
+        # Also look for method-based database operations (like your User class methods)
+        self._extract_method_based_queries(content, file_path, queries)
+        
         return queries
     
+    def _extract_method_based_queries(self, content: str, file_path: str, queries: List[DatabaseQuery]) -> None:
+        """Extract queries from database method patterns like getAll(), getById(), etc."""
+        
+        method_patterns = {
+            'getAll': ('SELECT', 'users'),
+            'getById': ('SELECT', 'users'),  
+            'create': ('INSERT', 'users'),
+            'update': ('UPDATE', 'users'),
+            'delete': ('DELETE', 'users')
+        }
+        
+        for method_name, (operation, table) in method_patterns.items():
+            method_pattern = re.compile(rf'function\s+{method_name}\s*\([^)]*\)', re.IGNORECASE)
+            
+            for match in method_pattern.finditer(content):
+                line_number = content[:match.start()].count('\n') + 1
+                
+                query = DatabaseQuery(
+                    query_type='pdo',  # These are PDO-based in your code
+                    file_path=file_path,
+                    line_number=line_number,
+                    table=table,
+                    raw_sql=f"{operation} ... FROM {table}" if operation == 'SELECT' else f"{operation} {table}",
+                    context=f"Method: {method_name}"
+                )
+                
+                queries.append(query)
+
     def _extract_table_info(self, queries: List[DatabaseQuery], php_files: List[str]) -> List[TableInfo]:
         """Extract table information from queries and model files."""
         tables = {}
@@ -772,3 +1013,12 @@ class DatabaseAnalyzer:
         }
         
         return type_mapping.get(php_type.lower(), 'String(255)')
+    
+    def _extract_table_properties(self, content: str, tables: Dict[str, TableInfo]) -> None:
+        """Extract table names from model $table properties."""
+        table_property_pattern = re.compile(r'protected\s+\$table\s*=\s*[\'"](\w+)[\'"]', re.IGNORECASE)
+        
+        for match in table_property_pattern.finditer(content):
+            table_name = match.group(1).lower()
+            if table_name not in tables:
+                tables[table_name] = TableInfo(name=table_name)

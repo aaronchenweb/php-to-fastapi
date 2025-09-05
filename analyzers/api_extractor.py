@@ -77,7 +77,21 @@ class APIExtractor:
             re.compile(r'response\(\)->json\(', re.IGNORECASE),
             re.compile(r'return\s+response\(\)', re.IGNORECASE)
         ]
-    
+
+        self.router_patterns = [
+            re.compile(r'\$router->addRoute\s*\(\s*["\'](\w+)["\']\s*,\s*["\']([^"\']+)["\']\s*,\s*function\s*\(\s*\)', re.IGNORECASE),
+            re.compile(r'\$router->addRoute\s*\(\s*["\'](\w+)["\']\s*,\s*["\']([^"\']+)["\']\s*,\s*[^)]+\)', re.IGNORECASE)
+        ]
+
+        self.custom_router_patterns = [
+            # Pattern for: $this->router->get('/path', 'Controller@method')
+            re.compile(r'\$this->router->(get|post|put|delete|patch|any)\s*\(\s*["\']([^"\']+)["\']\s*,\s*["\']([^"\'@]+)@([^"\']+)["\']', re.IGNORECASE),
+            # Pattern for: $router->addRoute('GET', '/path', 'handler')
+            re.compile(r'\$\w*router\w*->(get|post|put|delete|patch|addRoute)\s*\(\s*(?:["\'](\w+)["\']\s*,\s*)?["\']([^"\']+)["\']\s*,\s*["\']?([^"\')\s]+)["\']?', re.IGNORECASE),
+            # Pattern for method chaining: ->get()->post()
+            re.compile(r'->(get|post|put|delete|patch)\s*\(\s*["\']([^"\']+)["\']', re.IGNORECASE)
+        ]
+
     def extract_from_file(self, file_path: str) -> List[APIEndpoint]:
         """Extract API endpoints from a single PHP file."""
         try:
@@ -114,6 +128,7 @@ class APIExtractor:
         endpoints.extend(self._extract_laravel_routes(content, file_path))
         endpoints.extend(self._extract_slim_routes(content, file_path))
         endpoints.extend(self._extract_codeigniter_routes(content, file_path))
+        endpoints.extend(self._extract_custom_router_routes(content, file_path))  # ADD THIS
         endpoints.extend(self._extract_generic_routes(content, file_path))
         
         # Add authentication and response format info
@@ -121,7 +136,54 @@ class APIExtractor:
             self._analyze_endpoint_details(endpoint, content)
         
         return endpoints
-    
+
+    def _extract_custom_router_routes(self, content: str, file_path: str) -> List[APIEndpoint]:
+        """Extract custom router route definitions like your implementation."""
+        endpoints = []
+        
+        for pattern in self.custom_router_patterns:
+            for match in pattern.finditer(content):
+                try:
+                    method = match.group(1).upper()
+                    
+                    # Handle different match group structures
+                    if len(match.groups()) >= 4:  # $this->router->get('/path', 'Controller@method')
+                        route = match.group(2)
+                        controller = match.group(3)
+                        method_name = match.group(4)
+                        handler = f"{controller}@{method_name}"
+                    elif len(match.groups()) >= 3:  # $router->addRoute('GET', '/path', 'handler')
+                        if match.group(2) and match.group(2).upper() in ['GET', 'POST', 'PUT', 'DELETE', 'PATCH']:
+                            method = match.group(2).upper()
+                            route = match.group(3)
+                            handler = match.group(4) if len(match.groups()) >= 4 else "unknown"
+                        else:
+                            route = match.group(2)
+                            handler = match.group(3)
+                    else:
+                        continue
+                    
+                    line_number = content[:match.start()].count('\n') + 1
+                    
+                    endpoint = APIEndpoint(
+                        method=method,
+                        route=route,
+                        handler=handler,
+                        file_path=file_path,
+                        line_number=line_number
+                    )
+                    
+                    # Extract route parameters
+                    endpoint.parameters = self._extract_route_parameters(route)
+                    
+                    endpoints.append(endpoint)
+                    
+                except (IndexError, AttributeError) as e:
+                    # Skip malformed matches
+                    continue
+        
+        return endpoints
+
     def _extract_laravel_routes(self, content: str, file_path: str) -> List[APIEndpoint]:
         """Extract Laravel/Lumen route definitions."""
         endpoints = []
@@ -565,3 +627,48 @@ class APIExtractor:
             }
         
         return spec
+    
+    def _extract_router_routes(self, content: str, file_path: str) -> List[APIEndpoint]:
+        """Extract custom router route definitions."""
+        endpoints = []
+        
+        for pattern in self.router_patterns:
+            for match in pattern.finditer(content):
+                method = match.group(1).upper()
+                route = match.group(2)
+                
+                line_number = content[:match.start()].count('\n') + 1
+                
+                # Extract handler from the context
+                handler = self._extract_handler_from_context(content, match.start(), match.end())
+                
+                endpoint = APIEndpoint(
+                    method=method,
+                    route=route,
+                    handler=handler or "router_handler",
+                    file_path=file_path,
+                    line_number=line_number
+                )
+                
+                endpoint.parameters = self._extract_route_parameters(route)
+                endpoints.append(endpoint)
+        
+        return endpoints
+
+    def _extract_handler_from_context(self, content: str, start: int, end: int) -> Optional[str]:
+        """Extract handler function from router context."""
+        # Look for $userController->methodName pattern
+        context = content[start:end+100]  # Look ahead a bit
+        
+        handler_match = re.search(r'\$(\w+)->(\w+)\(\)', context)
+        if handler_match:
+            controller = handler_match.group(1)
+            method = handler_match.group(2)
+            return f"{controller}.{method}"
+        
+        # Look for direct function names
+        func_match = re.search(r'function\s*\(\s*\)\s*{\s*([^}]+)', context)
+        if func_match:
+            return "anonymous_function"
+        
+        return None

@@ -227,11 +227,6 @@ class GeminiProvider(BaseLLMProvider):
             url = f'{self.base_url}/models/{self.model}:generateContent'
             params = {'key': self.api_key}
             
-            print(f"DEBUG: Making request to: {url}")
-            print(f"DEBUG: Model: {self.model}")
-            print(f"DEBUG: Base URL: {self.base_url}")
-            print(f"DEBUG: API Key length: {len(self.api_key) if self.api_key else 0}")
-            
             response = requests.post(
                 url,
                 params=params,

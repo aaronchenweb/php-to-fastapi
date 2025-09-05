@@ -251,14 +251,13 @@ class StructureAnalyzer:
         dir_paths = {d.path.lower() for d in directories}
         
         # Laravel detection
-        laravel_indicators = ['app', 'routes', 'config', 'database', 'resources']
-        if all(indicator in dir_names or any(indicator in path for path in dir_paths) 
-               for indicator in laravel_indicators[:3]):  # At least 3 indicators
+        laravel_indicators = ['app', 'routes', 'config', 'database', 'resources', 'artisan']
+        if sum(1 for indicator in laravel_indicators if indicator in dir_names or any(indicator in path for path in dir_paths)) >= 4:
             return 'laravel'
         
         # Symfony detection
-        symfony_indicators = ['src', 'config', 'templates', 'var']
-        if all(indicator in dir_names for indicator in symfony_indicators[:3]):
+        symfony_indicators = ['src', 'config', 'templates', 'var', 'bin/console']
+        if sum(1 for indicator in symfony_indicators if indicator in dir_names or any(indicator in path for path in dir_paths)) >= 3:
             return 'symfony'
         
         # CodeIgniter detection
@@ -266,16 +265,36 @@ class StructureAnalyzer:
         if all(indicator in dir_names for indicator in ci_indicators):
             return 'codeigniter'
         
-        # Slim detection (harder to detect, look for common patterns)
-        if 'src' in dir_names and 'public' in dir_names:
-            # Could be Slim or other micro-framework
+        # Slim detection
+        slim_indicators = ['src', 'public', 'vendor']
+        if all(indicator in dir_names for indicator in slim_indicators[:2]):
+            # Check for Slim-specific files or minimal structure
             return 'slim'
+        
+        # Custom/Native PHP detection (YOUR CASE)
+        custom_indicators = {
+            'has_src': 'src' in dir_names,
+            'has_public': 'public' in dir_names,
+            'has_config': 'config' in dir_names,
+            'has_composer': any('composer' in d.name.lower() for d in directories),
+            'has_psr4_structure': any('controllers' in path or 'models' in path or 'core' in path for path in dir_paths),
+            'minimal_structure': len([d for d in directories if d.php_file_count > 0]) < 10
+        }
+        
+        # If it has modern PHP structure but doesn't match major frameworks
+        if (custom_indicators['has_src'] and custom_indicators['has_public'] and 
+            custom_indicators['has_config'] and custom_indicators['has_psr4_structure']):
+            return 'custom_mvc'
+        
+        # Check if it's a custom implementation with composer autoloading
+        if custom_indicators['has_composer'] and custom_indicators['has_psr4_structure']:
+            return 'custom_composer'
         
         return 'vanilla'
     
     def _analyze_organization_pattern(self, 
-                                     directories: List[DirectoryInfo], 
-                                     framework_type: Optional[str]) -> str:
+                                    directories: List[DirectoryInfo], 
+                                    framework_type: Optional[str]) -> str:
         """Analyze the overall organization pattern."""
         purposes = [d.purpose for d in directories if d.purpose]
         purpose_counts = {purpose: purposes.count(purpose) for purpose in set(purposes)}
@@ -284,7 +303,23 @@ class StructureAnalyzer:
         has_controllers = 'controller' in purpose_counts
         has_models = 'model' in purpose_counts  
         has_views = 'view' in purpose_counts
+        has_api_structure = 'api' in purpose_counts
         
+        # For custom frameworks, also check directory names
+        dir_names = {d.name.lower() for d in directories}
+        has_mvc_dirs = any(mvc_dir in dir_names for mvc_dir in ['controllers', 'models', 'views'])
+        has_core_dirs = any(core_dir in dir_names for core_dir in ['core', 'src', 'app'])
+        
+        # Custom MVC detection (like your code)
+        if framework_type in ['custom_mvc', 'custom_composer']:
+            if has_controllers and has_models:
+                return 'custom_mvc'
+            elif has_mvc_dirs and has_core_dirs:
+                return 'custom_mvc'
+            elif has_api_structure:
+                return 'api_focused'
+        
+        # Standard MVC detection
         if has_controllers and has_models and has_views:
             return 'mvc'
         elif has_controllers and has_models:
@@ -868,31 +903,56 @@ class StructureAnalyzer:
         return None
     
     def _detect_framework(self, directories: List[DirectoryInfo]) -> Optional[str]:
-        """Detect the PHP framework based on directory structure."""
+        """Enhanced framework detection with custom PHP pattern recognition."""
         dir_names = {d.name.lower() for d in directories}
-        dir_paths = {d.path.lower() for d in directories}
+        dir_paths = {d.path.lower() for d in directories if d.path}
+        all_paths = set(dir_paths) | set(dir_names)
         
-        # Laravel detection
-        laravel_indicators = ['app', 'routes', 'config', 'database', 'resources']
-        if all(indicator in dir_names or any(indicator in path for path in dir_paths) 
-               for indicator in laravel_indicators[:3]):  # At least 3 indicators
+        # Check for composer.json to confirm modern PHP project
+        has_composer = any('composer' in d.name.lower() for d in directories)
+        
+        # Laravel detection (needs 4+ indicators)
+        laravel_indicators = ['app', 'routes', 'config', 'database', 'resources', 'artisan', 'bootstrap']
+        laravel_score = sum(1 for indicator in laravel_indicators if indicator in all_paths)
+        if laravel_score >= 4:
             return 'laravel'
         
-        # Symfony detection
-        symfony_indicators = ['src', 'config', 'templates', 'var']
-        if all(indicator in dir_names for indicator in symfony_indicators[:3]):
+        # Symfony detection (needs 3+ indicators)
+        symfony_indicators = ['src', 'config', 'templates', 'var', 'public', 'bin']
+        symfony_score = sum(1 for indicator in symfony_indicators if indicator in all_paths)
+        if symfony_score >= 4 and 'app' not in dir_names:  # Distinguish from Laravel
             return 'symfony'
         
         # CodeIgniter detection
-        ci_indicators = ['application', 'system']
-        if all(indicator in dir_names for indicator in ci_indicators):
+        if 'application' in dir_names and 'system' in dir_names:
             return 'codeigniter'
         
-        # Slim detection (harder to detect, look for common patterns)
-        if 'src' in dir_names and 'public' in dir_names:
-            # Could be Slim or other micro-framework
+        # Slim framework detection (typical Slim structure)
+        if ('src' in dir_names and 'public' in dir_names and 
+            len([d for d in directories if d.php_file_count > 0]) < 15):  # Minimal structure
             return 'slim'
         
+        # CUSTOM/NATIVE PHP DETECTION (Your case)
+        custom_indicators = {
+            'modern_structure': has_composer and 'src' in dir_names and 'public' in dir_names,
+            'mvc_structure': any(mvc in all_paths for mvc in ['controller', 'model', 'core']),
+            'psr4_namespacing': has_composer and 'src' in dir_names,
+            'config_separation': 'config' in dir_names,
+            'not_framework': laravel_score < 3 and symfony_score < 3
+        }
+        
+        # Strong indicators of custom implementation
+        if (custom_indicators['modern_structure'] and 
+            custom_indicators['mvc_structure'] and 
+            custom_indicators['not_framework']):
+            return 'custom_mvc'
+        
+        # Fallback for composer-based custom projects
+        if (has_composer and custom_indicators['psr4_namespacing'] and 
+            custom_indicators['not_framework']):
+            return 'custom_composer'
+        
+        # Traditional vanilla PHP
         return 'vanilla'
     
     def _analyze_organization_pattern(self, 
@@ -976,9 +1036,10 @@ class StructureAnalyzer:
         """Calculate architecture quality score (0-10)."""
         score = 0.0
         
-        # Organization pattern scoring
+        # Organization pattern scoring (updated)
         pattern_scores = {
             'mvc': 8.0,
+            'custom_mvc': 8.5,  # Add this
             'domain_driven': 9.0,
             'layered': 7.0,
             'mvc_partial': 5.0,
@@ -988,10 +1049,19 @@ class StructureAnalyzer:
         }
         score += pattern_scores.get(analysis.organization_pattern, 1.0)
         
-        # Framework bonus
-        if analysis.framework_type and analysis.framework_type != 'vanilla':
-            score += 1.0
+        # Framework bonus (updated)
+        framework_scores = {
+            'laravel': 1.0,
+            'symfony': 1.0,
+            'custom_mvc': 1.2,  # Bonus for well-structured custom
+            'custom_composer': 1.0,
+            'codeigniter': 0.8,
+            'slim': 0.7,
+            'vanilla': 0.0
+        }
+        score += framework_scores.get(analysis.framework_type, 0.0)
         
+        # Rest of the method stays the same...
         # Directory structure bonus
         purposes = [d.purpose for d in analysis.directories if d.purpose]
         unique_purposes = len(set(purposes))

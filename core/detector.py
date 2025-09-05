@@ -259,6 +259,9 @@ class PHPProjectDetector:
     
     def _calculate_framework_aware_api_score(self, project_path: str, php_files: List[str], framework: str) -> Tuple[float, int]:
         """Calculate API score with framework awareness. Returns (score, api_files_count)."""
+        if framework in ['custom_mvc', 'vanilla_php']:
+            return self._analyze_custom_php_api_patterns(project_path, php_files)
+        
         if not php_files:
             return 0.0, 0
         
@@ -293,6 +296,44 @@ class PHPProjectDetector:
         score = min(api_indicators / len(files_to_check), 1.0) if files_to_check else 0.0
         return score, api_files_found
     
+    def _analyze_custom_php_api_patterns(self, project_path: str, php_files: List[str]) -> Tuple[float, int]:
+        """Analyze custom PHP for API patterns."""
+        api_indicators = 0
+        api_files_found = 0
+        
+        # Enhanced patterns for custom PHP
+        custom_api_patterns = [
+            r'\$this->router->(get|post|put|delete)',
+            r'class.*Controller',
+            r'json_encode\s*\(',
+            r'header\s*\(\s*["\']Content-Type:\s*application/json',
+            r'http_response_code\s*\(',
+            r'PDO\s*\(',
+            r'Database::getInstance',
+            r'->query\s*\(',
+            r'->prepare\s*\('
+        ]
+        
+        for file_path in php_files[:50]:  # Limit for performance
+            try:
+                with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                    content = f.read()
+                
+                matches = 0
+                for pattern in custom_api_patterns:
+                    if re.search(pattern, content, re.IGNORECASE):
+                        matches += 1
+                
+                if matches >= 2:  # At least 2 patterns must match
+                    api_indicators += 1
+                    api_files_found += 1
+                    
+            except Exception:
+                continue
+        
+        score = min(api_indicators / len(php_files), 1.0) if php_files else 0.0
+        return score, api_files_found
+
     def _check_framework_api_indicators(self, project_path: str, framework: str) -> Tuple[float, int]:
         """Check for framework-specific API indicators. Returns (score, api_files_count)."""
         indicators = self.framework_api_indicators.get(framework, {})
@@ -491,26 +532,101 @@ class PHPProjectDetector:
     
     def _detect_framework(self, project_path: str) -> Optional[str]:
         """Detect PHP framework used in the project."""
+        
+        # Check for custom/native PHP patterns FIRST (before generic ones)
+        custom_indicators = self._check_custom_php_patterns(project_path)
+        if custom_indicators['is_custom']:
+            return 'custom_mvc'
+        
+        # Then check specific frameworks
         for framework, patterns in self.framework_patterns.items():
+            if framework in ['vanilla_php', 'slim']:  # Skip generic ones for now
+                continue
+                
             matches = 0
-            
             for pattern in patterns:
                 if '*' in pattern:
-                    # Handle wildcard patterns
                     if self._has_files_matching_pattern(project_path, pattern):
                         matches += 1
                 else:
-                    # Handle specific file/directory patterns
                     full_path = os.path.join(project_path, pattern)
                     if os.path.exists(full_path):
                         matches += 1
             
-            # Framework detected if most patterns match
             threshold = len(patterns) * 0.6
             if matches >= threshold:
                 return framework
         
-        return 'vanilla_php'  # Default fallback
+        # Finally check generic frameworks
+        if self._check_slim_specific_patterns(project_path):
+            return 'slim'
+        
+        return 'vanilla_php'
+
+    def _check_custom_php_patterns(self, project_path: str) -> Dict[str, bool]:
+        """Check for custom PHP implementation patterns."""
+        indicators = {
+            'has_composer': os.path.exists(os.path.join(project_path, 'composer.json')),
+            'has_src_structure': os.path.exists(os.path.join(project_path, 'src')),
+            'has_custom_router': False,
+            'has_psr4_structure': False,
+            'is_custom': False
+        }
+        
+        # Check for custom router implementation
+        src_path = os.path.join(project_path, 'src')
+        if os.path.exists(src_path):
+            for root, dirs, files in os.walk(src_path):
+                for file in files:
+                    if file.endswith('.php'):
+                        file_path = os.path.join(root, file)
+                        try:
+                            with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                                content = f.read()
+                            
+                            # Look for custom router patterns
+                            if any(pattern in content for pattern in [
+                                'class Router', 'class App', '$this->router->',
+                                'setupRoutes', 'addRoute'
+                            ]):
+                                indicators['has_custom_router'] = True
+                            
+                            # Check for PSR-4 namespacing
+                            if 'namespace' in content and '\\' in content:
+                                indicators['has_psr4_structure'] = True
+                                
+                        except Exception:
+                            continue
+        
+        # Determine if it's custom
+        indicators['is_custom'] = (
+            indicators['has_composer'] and 
+            indicators['has_src_structure'] and
+            (indicators['has_custom_router'] or indicators['has_psr4_structure'])
+        )
+        
+        return indicators
+
+    def _check_slim_specific_patterns(self, project_path: str) -> bool:
+        """Check for Slim-specific patterns to avoid false positives."""
+        # Look for actual Slim framework usage
+        composer_path = os.path.join(project_path, 'composer.json')
+        if os.path.exists(composer_path):
+            try:
+                import json
+                with open(composer_path, 'r') as f:
+                    composer_data = json.load(f)
+                
+                # Check for Slim in dependencies
+                require = composer_data.get('require', {})
+                require_dev = composer_data.get('require-dev', {})
+                all_deps = {**require, **require_dev}
+                
+                return any('slim' in dep.lower() for dep in all_deps.keys())
+            except Exception:
+                pass
+        
+        return False
     
     def _has_files_matching_pattern(self, project_path: str, pattern: str) -> bool:
         """Check if files matching pattern exist."""

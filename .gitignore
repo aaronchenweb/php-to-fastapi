@@ -1,5 +1,5 @@
 .vscode
 .env
-/fastapi_output
+/fastapi_output*
 __pycache__/
 *.py[cod]

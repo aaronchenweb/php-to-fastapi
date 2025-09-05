@@ -134,10 +134,10 @@ class GenerationStage:
         self.ui.info("=" * 80)
     
     def _show_project_structure_preview(self, output_path: str) -> None:
-        """Show a preview of the generated project structure."""
+        """Show a comprehensive preview of the generated project structure."""
         try:
             self.ui.info(f"\n🏗️  PROJECT STRUCTURE PREVIEW:")
-            self.ui.info("   " + "=" * 50)
+            self.ui.info("   " + "=" * 60)
             
             # Walk through the generated structure
             for root, dirs, files in os.walk(output_path):
@@ -148,18 +148,62 @@ class GenerationStage:
                 indent = '   ' + '  ' * level
                 folder_name = os.path.basename(root) or os.path.basename(output_path)
                 
-                if level <= 3:  # Only show first 3 levels
+                # Show more levels (up to 4 instead of 3)
+                if level <= 4:
                     self.ui.info(f"{indent}📁 {folder_name}/")
                     
-                    # Show files in this directory
+                    # Show files in this directory  
                     file_indent = '   ' + '  ' * (level + 1)
                     for file in sorted(files):
                         if not file.startswith('.') and not file.endswith('.pyc'):
-                            if level <= 2:  # Only show files for first 2 levels
+                            # Show files for more levels (up to 3 instead of 2)
+                            if level <= 3:
                                 icon = self._get_file_icon(file)
-                                self.ui.info(f"{file_indent}{icon} {file}")
+                                file_size = ""
+                                try:
+                                    if os.path.exists(os.path.join(root, file)):
+                                        size_bytes = os.path.getsize(os.path.join(root, file))
+                                        if size_bytes > 1024:
+                                            file_size = f" ({size_bytes//1024}KB)"
+                                        elif size_bytes > 0:
+                                            file_size = f" ({size_bytes}B)"
+                                except:
+                                    pass
+                                self.ui.info(f"{file_indent}{icon} {file}{file_size}")
+                            elif level == 4:
+                                # Just show count for deeper levels
+                                file_count = len([f for f in files if not f.startswith('.') and not f.endswith('.pyc')])
+                                if file_count > 0:
+                                    self.ui.info(f"{file_indent}📄 {file_count} files")
+                                break
             
-            self.ui.info("   " + "=" * 50)
+            self.ui.info("   " + "=" * 60)
+            
+            # Show summary statistics
+            total_files = 0
+            total_size = 0
+            file_types = {}
+            
+            for root, dirs, files in os.walk(output_path):
+                for file in files:
+                    if not file.startswith('.') and not file.endswith('.pyc'):
+                        total_files += 1
+                        ext = os.path.splitext(file)[1] or 'no extension'
+                        file_types[ext] = file_types.get(ext, 0) + 1
+                        
+                        try:
+                            total_size += os.path.getsize(os.path.join(root, file))
+                        except:
+                            pass
+            
+            self.ui.info(f"\n📊 PROJECT STATISTICS:")
+            self.ui.info(f"   Total files: {total_files}")
+            self.ui.info(f"   Total size: {total_size//1024}KB" if total_size > 1024 else f"   Total size: {total_size}B")
+            
+            if file_types:
+                self.ui.info(f"   File types:")
+                for ext, count in sorted(file_types.items(), key=lambda x: x[1], reverse=True):
+                    self.ui.info(f"   • {ext}: {count} files")
             
         except Exception as e:
             self.ui.debug(f"Failed to show project structure: {str(e)}")
@@ -528,12 +572,10 @@ class GenerationStage:
         self.ui.info(f"   {description}")
         self.ui.info(f"   Generated {len(files)} files:")
         
-        for file_path in files[:5]:  # Show first 5 files
+        # Show ALL files, not just first 5
+        for file_path in files:
             relative_path = os.path.relpath(file_path) if os.path.exists(file_path) else file_path
             self.ui.info(f"   • {relative_path}")
-        
-        if len(files) > 5:
-            self.ui.info(f"   • ... and {len(files) - 5} more files")
     
     def _show_auth_conversion_results(self, auth_files: List[str], auth_info: List[str]) -> None:
         """Show authentication conversion results."""
@@ -541,15 +583,30 @@ class GenerationStage:
         self.ui.info(f"   Detected methods: {', '.join(auth_info)}")
         self.ui.info(f"   Generated {len(auth_files)} authentication files:")
         
+        # Show ALL files
         for file_path in auth_files:
             file_name = os.path.basename(file_path)
             self.ui.info(f"   • {file_name}")
-            
-            # Show a snippet of key files
+        
+        # Show code snippets for key files
+        key_files_shown = 0
+        for file_path in auth_files:
+            file_name = os.path.basename(file_path)
             if 'deps.py' in file_name and os.path.exists(file_path):
                 self._show_file_snippet(file_path, "Authentication Dependencies")
+                key_files_shown += 1
             elif 'auth.py' in file_name and 'routes' in file_path and os.path.exists(file_path):
-                self._show_file_snippet(file_path, "Auth Routes")
+                self._show_file_snippet(file_path, "Auth Routes")  
+                key_files_shown += 1
+            elif 'security.py' in file_name and os.path.exists(file_path):
+                self._show_file_snippet(file_path, "Security Configuration")
+                key_files_shown += 1
+            
+            # In verbose mode, show all files
+            if self.ui.verbose and key_files_shown < 2:
+                if file_name.endswith('.py') and os.path.exists(file_path):
+                    self._show_file_snippet(file_path, f"Auth File: {file_name}")
+                    key_files_shown += 1
     
     def _show_models_conversion_results(self, model_files: List[str], db_info: Dict[str, Any]) -> None:
         """Show database models conversion results."""
@@ -559,28 +616,50 @@ class GenerationStage:
         self.ui.info(f"   Tables converted: {len(table_refs)}")
         self.ui.info(f"   Generated {len(model_files)} model files:")
         
+        # Show ALL model files
         for file_path in model_files:
             file_name = os.path.basename(file_path)
             self.ui.info(f"   • {file_name}")
-            
-            # Show snippet of a model file
+        
+        # Show snippets of model files (not just one)
+        model_files_shown = 0
+        for file_path in model_files:
+            file_name = os.path.basename(file_path)
             if file_name.endswith('.py') and file_name != '__init__.py' and os.path.exists(file_path):
                 self._show_file_snippet(file_path, f"Model: {file_name}")
-                break  # Only show one example
+                model_files_shown += 1
+                
+                # Show first 3 models, or all in verbose mode
+                if not self.ui.verbose and model_files_shown >= 3:
+                    remaining = len([f for f in model_files if f.endswith('.py') and '__init__' not in f]) - model_files_shown
+                    if remaining > 0:
+                        self.ui.info(f"   📋 {remaining} additional model files generated (use --verbose to see all)")
+                    break
     
     def _show_schemas_conversion_results(self, schema_files: List[str], api_info: Dict[str, Any]) -> None:
         """Show Pydantic schemas conversion results."""
         self.ui.info(f"\n📋 PYDANTIC SCHEMAS GENERATED:")
         self.ui.info(f"   Generated {len(schema_files)} schema files:")
         
+        # Show ALL schema files
         for file_path in schema_files:
             file_name = os.path.basename(file_path)
             self.ui.info(f"   • {file_name}")
-            
-            # Show snippet of a schema file
+        
+        # Show snippets of schema files
+        schema_files_shown = 0
+        for file_path in schema_files:
+            file_name = os.path.basename(file_path)
             if file_name.endswith('.py') and file_name != '__init__.py' and os.path.exists(file_path):
                 self._show_file_snippet(file_path, f"Schema: {file_name}")
-                break  # Only show one example
+                schema_files_shown += 1
+                
+                # Show first 3 schemas, or all in verbose mode  
+                if not self.ui.verbose and schema_files_shown >= 3:
+                    remaining = len([f for f in schema_files if f.endswith('.py') and '__init__' not in f]) - schema_files_shown
+                    if remaining > 0:
+                        self.ui.info(f"   📋 {remaining} additional schema files generated (use --verbose to see all)")
+                    break
     
     def _show_endpoint_group_results(self, group: Dict[str, Any], files: List[str]) -> None:
         """Show endpoint group conversion results."""
@@ -590,17 +669,23 @@ class GenerationStage:
         self.ui.info(f"\n🌐 ENDPOINT GROUP: {group_name.upper()}")
         self.ui.info(f"   Converted {len(endpoints)} endpoints:")
         
-        for endpoint in endpoints[:3]:  # Show first 3 endpoints
+        # Show ALL endpoints, not just first 3
+        for endpoint in endpoints:
             method = endpoint.get('method', 'GET')
             route = endpoint.get('route', '/')
             self.ui.info(f"   • {method} {route}")
         
-        if len(endpoints) > 3:
-            self.ui.info(f"   • ... and {len(endpoints) - 3} more endpoints")
-        
         # Show generated file snippet
         if files and os.path.exists(files[0]):
             self._show_file_snippet(files[0], f"FastAPI Routes: {group_name}")
+        
+        # Show all files in this group
+        if len(files) > 1:
+            self.ui.info(f"   📁 Additional files in this group:")
+            for file_path in files[1:]:
+                self.ui.info(f"   • {os.path.basename(file_path)}")
+                if self.ui.verbose and os.path.exists(file_path):
+                    self._show_file_snippet(file_path, f"Additional File: {os.path.basename(file_path)}")
     
     def _show_endpoints_summary(self, endpoint_files: List[str], endpoint_groups: List[Dict[str, Any]]) -> None:
         """Show summary of all endpoint conversions."""
@@ -637,22 +722,38 @@ class GenerationStage:
         
         for file_path in main_files:
             if os.path.exists(file_path) and file_path.endswith('main.py'):
-                self._show_file_snippet(file_path, "FastAPI Main Application", lines=15)
+                # Show more lines for the main application file since it's crucial
+                self._show_file_snippet(file_path, "FastAPI Main Application", lines=30)
+            else:
+                self.ui.info(f"   • {os.path.basename(file_path)}")
     
     def _show_support_files_results(self, support_files: List[str]) -> None:
         """Show supporting files generation results."""
         self.ui.info(f"\n📄 SUPPORTING FILES GENERATED:")
         self.ui.info(f"   Generated {len(support_files)} supporting files:")
         
-        key_files = ['requirements.txt', 'README.md', 'Dockerfile', 'docker-compose.yml']
+        # Show ALL supporting files
+        for file_path in support_files:
+            file_name = os.path.basename(file_path)
+            self.ui.info(f"   • {file_name}")
+        
+        # Show snippets of key supporting files
+        key_files = ['requirements.txt', 'README.md', 'Dockerfile', 'docker-compose.yml', '.gitignore']
         
         for file_path in support_files:
             file_name = os.path.basename(file_path)
-            if file_name in key_files:
-                self.ui.info(f"   • {file_name}")
+            if file_name in key_files and os.path.exists(file_path):
+                if file_name == 'requirements.txt':
+                    self._show_file_snippet(file_path, "Python Dependencies", lines=20)
+                elif file_name == 'README.md':
+                    self._show_file_snippet(file_path, "Project README", lines=25) 
+                elif file_name == 'Dockerfile':
+                    self._show_file_snippet(file_path, "Docker Configuration", lines=15)
+                elif self.ui.verbose:  # Show other files only in verbose mode
+                    self._show_file_snippet(file_path, f"Supporting File: {file_name}", lines=15)
     
-    def _show_file_snippet(self, file_path: str, title: str, lines: int = 10) -> None:
-        """Show a snippet of a generated file."""
+    def _show_file_snippet(self, file_path: str, title: str, lines: int = 25) -> None:
+        """Show a snippet of a generated file with full details."""
         try:
             if not os.path.exists(file_path):
                 return
@@ -663,13 +764,28 @@ class GenerationStage:
             with open(file_path, 'r', encoding='utf-8') as f:
                 file_lines = f.readlines()
                 
-                for i, line in enumerate(file_lines[:lines]):
-                    # Remove trailing newline and add indentation
-                    clean_line = line.rstrip('\n')
-                    self.ui.info(f"   {clean_line}")
+                # Show more lines by default, and in verbose mode show even more
+                display_lines = lines
+                if self.ui.verbose:
+                    display_lines = min(len(file_lines), 50)  # Show up to 50 lines in verbose mode
                 
-                if len(file_lines) > lines:
-                    self.ui.info(f"   ... ({len(file_lines) - lines} more lines)")
+                for i, line in enumerate(file_lines[:display_lines]):
+                    # Remove trailing newline and add indentation with line numbers
+                    clean_line = line.rstrip('\n')
+                    line_num = f"{i+1:3d}"
+                    self.ui.info(f"   {line_num} │ {clean_line}")
+                
+                if len(file_lines) > display_lines:
+                    remaining = len(file_lines) - display_lines
+                    self.ui.info(f"   ... │ ... ({remaining} more lines)")
+                    
+                    # In verbose mode, offer to show the rest
+                    if self.ui.verbose and remaining > 0:
+                        if self.ui.confirm(f"📄 Show remaining {remaining} lines of {os.path.basename(file_path)}?", default=False):
+                            for i, line in enumerate(file_lines[display_lines:], start=display_lines):
+                                clean_line = line.rstrip('\n')
+                                line_num = f"{i+1:3d}"
+                                self.ui.info(f"   {line_num} │ {clean_line}")
             
             self.ui.info("   " + "-" * 50)
             
@@ -700,4 +816,65 @@ class GenerationStage:
         # Show project structure preview
         self._show_project_structure_preview(output_path)
         
+        # Show option to explore individual files
+        if self.ui.verbose:
+            if self.ui.confirm("🔍 Explore individual generated files?", default=False):
+                self._explore_generated_files(all_files, output_path)
+        
         self.ui.info("=" * 80)
+    
+    def _explore_generated_files(self, all_files: List[str], output_path: str) -> None:
+        """Allow user to explore individual generated files."""
+        self.ui.info("\n📁 FILE EXPLORER:")
+        self.ui.info("   Select files to view (enter number, 'q' to quit):")
+        
+        # Group files by type
+        file_groups = {
+            'Core Application': [],
+            'API & Routes': [],
+            'Models & Schemas': [],
+            'Configuration': [],
+            'Supporting Files': []
+        }
+        
+        for file_path in all_files:
+            file_name = os.path.basename(file_path)
+            rel_path = os.path.relpath(file_path, output_path)
+            
+            if 'main.py' in file_name or 'app.py' in file_name:
+                file_groups['Core Application'].append((rel_path, file_path))
+            elif '/api/' in file_path or '/endpoints/' in file_path or '/routes/' in file_path:
+                file_groups['API & Routes'].append((rel_path, file_path))
+            elif '/models/' in file_path or '/schemas/' in file_path:
+                file_groups['Models & Schemas'].append((rel_path, file_path))
+            elif 'config' in file_name or '.env' in file_name or file_name.endswith('.ini'):
+                file_groups['Configuration'].append((rel_path, file_path))
+            else:
+                file_groups['Supporting Files'].append((rel_path, file_path))
+        
+        file_index = 1
+        file_map = {}
+        
+        for group_name, files in file_groups.items():
+            if files:
+                self.ui.info(f"\n   📂 {group_name}:")
+                for rel_path, full_path in files:
+                    self.ui.info(f"      {file_index}. {rel_path}")
+                    file_map[str(file_index)] = (rel_path, full_path)
+                    file_index += 1
+        
+        while True:
+            try:
+                choice = input(f"\n   Enter file number (1-{len(file_map)}) or 'q' to quit: ").strip()
+                
+                if choice.lower() == 'q':
+                    break
+                
+                if choice in file_map:
+                    rel_path, full_path = file_map[choice]
+                    self.ui.show_complete_file(f"Generated File: {rel_path}", full_path)
+                else:
+                    self.ui.warning(f"   Invalid choice. Enter 1-{len(file_map)} or 'q'")
+                    
+            except (KeyboardInterrupt, EOFError):
+                break
