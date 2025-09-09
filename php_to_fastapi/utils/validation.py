@@ -4,13 +4,322 @@ Validates generated Python/FastAPI code for syntax errors, imports, and best pra
 """
 
 import ast
+import os
 import sys
 import re
 import subprocess
 from pathlib import Path
-from typing import List, Dict, Any, Optional, Union, NamedTuple
+from typing import List, Dict, Any, Optional, Union, NamedTuple, Tuple
 from dataclasses import dataclass
 import importlib.util
+
+try:
+    from ..core.detector import PHPProjectDetector
+except ImportError:
+    # Fallback for development
+    sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+    from ..core.detector import PHPProjectDetector
+
+@dataclass
+class ValidationResult:
+    """Result of a validation operation."""
+    is_valid: bool
+    message: str
+    suggestions: Optional[List[str]] = None
+    warnings: Optional[List[str]] = None
+
+
+def validate_project_path(project_path: str) -> bool:
+    """
+    Validate that the PHP project path is valid and contains a PHP project.
+    
+    Args:
+        project_path: Path to the PHP project directory
+        
+    Returns:
+        bool: True if valid, False otherwise
+    """
+    # Check if path exists
+    if not os.path.exists(project_path):
+        print(f"❌ Error: Path '{project_path}' does not exist")
+        return False
+    
+    # Check if it's a directory
+    if not os.path.isdir(project_path):
+        print(f"❌ Error: Path '{project_path}' is not a directory")
+        return False
+    
+    # Check if it's a valid PHP project
+    detector = PHPProjectDetector()
+    validation_result = detector.validate_project(project_path)
+    
+    if not validation_result.is_valid:
+        print(f"❌ Error: '{project_path}' does not appear to be a valid PHP web API project")
+        print(f"   Reason: {validation_result.reason}")
+        if validation_result.suggestions:
+            print("   Suggestions:")
+            for suggestion in validation_result.suggestions:
+                print(f"   • {suggestion}")
+        return False
+    
+    return True
+
+
+def validate_output_path(output_path: str, create_if_missing: bool = True) -> ValidationResult:
+    """
+    Validate output directory path.
+    
+    Args:
+        output_path: Path to the output directory
+        create_if_missing: Whether to create directory if it doesn't exist
+        
+    Returns:
+        ValidationResult: Validation result with details
+    """
+    path = Path(output_path)
+    
+    # Check if path exists
+    if path.exists():
+        if not path.is_dir():
+            return ValidationResult(
+                is_valid=False,
+                message=f"Output path '{output_path}' exists but is not a directory"
+            )
+        
+        # Check if directory is empty
+        if any(path.iterdir()):
+            return ValidationResult(
+                is_valid=True,
+                message=f"Output directory '{output_path}' exists and is not empty",
+                warnings=[
+                    "Directory is not empty - existing files may be overwritten",
+                    "Consider using a different output directory or backing up existing files"
+                ]
+            )
+    else:
+        # Try to create directory if requested
+        if create_if_missing:
+            try:
+                path.mkdir(parents=True, exist_ok=True)
+                return ValidationResult(
+                    is_valid=True,
+                    message=f"Created output directory: {output_path}"
+                )
+            except PermissionError:
+                return ValidationResult(
+                    is_valid=False,
+                    message=f"Permission denied: Cannot create directory '{output_path}'",
+                    suggestions=[
+                        "Check directory permissions",
+                        "Try a different output directory",
+                        "Run with appropriate permissions"
+                    ]
+                )
+            except Exception as e:
+                return ValidationResult(
+                    is_valid=False,
+                    message=f"Failed to create directory '{output_path}': {e}"
+                )
+        else:
+            return ValidationResult(
+                is_valid=False,
+                message=f"Output directory '{output_path}' does not exist"
+            )
+    
+    return ValidationResult(
+        is_valid=True,
+        message=f"Output directory '{output_path}' is valid"
+    )
+
+
+def validate_file_path(file_path: str, must_exist: bool = True) -> ValidationResult:
+    """
+    Validate file path.
+    
+    Args:
+        file_path: Path to the file
+        must_exist: Whether file must exist
+        
+    Returns:
+        ValidationResult: Validation result with details
+    """
+    path = Path(file_path)
+    
+    if must_exist:
+        if not path.exists():
+            return ValidationResult(
+                is_valid=False,
+                message=f"File '{file_path}' does not exist"
+            )
+        
+        if not path.is_file():
+            return ValidationResult(
+                is_valid=False,
+                message=f"Path '{file_path}' is not a file"
+            )
+    else:
+        # Check if parent directory exists and is writable
+        parent = path.parent
+        if not parent.exists():
+            try:
+                parent.mkdir(parents=True, exist_ok=True)
+            except Exception as e:
+                return ValidationResult(
+                    is_valid=False,
+                    message=f"Cannot create parent directory for '{file_path}': {e}"
+                )
+        
+        # Check write permissions
+        if not os.access(parent, os.W_OK):
+            return ValidationResult(
+                is_valid=False,
+                message=f"No write permission for directory '{parent}'"
+            )
+    
+    return ValidationResult(
+        is_valid=True,
+        message=f"File path '{file_path}' is valid"
+    )
+
+
+def validate_llm_config() -> ValidationResult:
+    """
+    Validate LLM configuration from environment variables.
+    
+    Returns:
+        ValidationResult: Validation result with details
+    """
+    api_key = os.getenv('LLM_API_KEY')
+    provider = os.getenv('LLM_PROVIDER', 'openai')
+    model = os.getenv('LLM_MODEL')
+    
+    if not api_key:
+        return ValidationResult(
+            is_valid=False,
+            message="LLM_API_KEY environment variable is required",
+            suggestions=[
+                "Set LLM_API_KEY environment variable",
+                "Example: export LLM_API_KEY='your-api-key-here'"
+            ]
+        )
+    
+    # Validate provider
+    valid_providers = ['openai', 'anthropic', 'gemini']
+    if provider not in valid_providers:
+        return ValidationResult(
+            is_valid=False,
+            message=f"Invalid LLM provider '{provider}'",
+            suggestions=[
+                f"Valid providers: {', '.join(valid_providers)}",
+                f"Set LLM_PROVIDER to one of: {', '.join(valid_providers)}"
+            ]
+        )
+    
+    # Check API key format (basic validation)
+    warnings = []
+    if provider == 'openai' and not api_key.startswith('sk-'):
+        warnings.append("OpenAI API keys typically start with 'sk-'")
+    elif provider == 'anthropic' and not api_key.startswith('sk-ant-'):
+        warnings.append("Anthropic API keys typically start with 'sk-ant-'")
+    
+    return ValidationResult(
+        is_valid=True,
+        message="LLM configuration is valid",
+        warnings=warnings
+    )
+
+
+def validate_python_environment() -> ValidationResult:
+    """
+    Validate Python environment requirements.
+    
+    Returns:
+        ValidationResult: Validation result with details
+    """
+    import sys
+    
+    # Check Python version
+    if sys.version_info < (3, 8):
+        return ValidationResult(
+            is_valid=False,
+            message=f"Python 3.8 or higher required (current: {sys.version})",
+            suggestions=[
+                "Upgrade to Python 3.8 or higher",
+                "Use pyenv or conda to manage Python versions"
+            ]
+        )
+    
+    # Check required modules (basic check)
+    required_modules = [
+        'argparse', 'pathlib', 'json', 'os', 'sys',
+        'typing', 'dataclasses', 'logging'
+    ]
+    
+    missing_modules = []
+    for module in required_modules:
+        try:
+            __import__(module)
+        except ImportError:
+            missing_modules.append(module)
+    
+    if missing_modules:
+        return ValidationResult(
+            is_valid=False,
+            message=f"Missing required modules: {', '.join(missing_modules)}",
+            suggestions=[
+                "Install missing modules",
+                "Consider using a virtual environment"
+            ]
+        )
+    
+    return ValidationResult(
+        is_valid=True,
+        message="Python environment is valid"
+    )
+
+
+def validate_all_requirements(
+    php_project_path: str,
+    output_path: Optional[str] = None
+) -> Tuple[bool, List[ValidationResult]]:
+    """
+    Validate all requirements for conversion.
+    
+    Args:
+        php_project_path: Path to PHP project
+        output_path: Optional output path
+        
+    Returns:
+        Tuple of (all_valid, list_of_results)
+    """
+    results = []
+    
+    # Validate Python environment
+    results.append(validate_python_environment())
+    
+    # Validate LLM configuration
+    results.append(validate_llm_config())
+    
+    # Validate PHP project path
+    if validate_project_path(php_project_path):
+        results.append(ValidationResult(
+            is_valid=True,
+            message=f"PHP project path '{php_project_path}' is valid"
+        ))
+    else:
+        results.append(ValidationResult(
+            is_valid=False,
+            message=f"PHP project path '{php_project_path}' is invalid"
+        ))
+    
+    # Validate output path if provided
+    if output_path:
+        results.append(validate_output_path(output_path))
+    
+    # Check if all validations passed
+    all_valid = all(result.is_valid for result in results)
+    
+    return all_valid, results
 
 
 class ValidationError(Exception):

@@ -6,18 +6,18 @@ import json
 from typing import Dict, Any, List, Optional
 from pathlib import Path
 
-from config.settings import Settings
-from core.user_interface import UserInterface
+from ..config.settings import Settings
+from ..core.user_interface import UserInterface
 
 # Import generators
-from generators.llm_assisted_generator import LLMAssistedGenerator
-from generators.code_batch_processor import CodeBatchProcessor
-from generators.endpoint_converter import EndpointConverter
-from generators.business_logic_translator import BusinessLogicTranslator
-from generators.auth_converter import AuthConverter
-from generators.model_generator import ModelGenerator
-from generators.schema_generator import SchemaGenerator
-from generators.project_assembler import ProjectAssembler
+from ..generators.llm_assisted_generator import LLMAssistedGenerator
+from ..generators.code_batch_processor import CodeBatchProcessor
+from ..generators.endpoint_converter import EndpointConverter
+from ..generators.business_logic_translator import BusinessLogicTranslator
+from ..generators.auth_converter import AuthConverter
+from ..generators.model_generator import ModelGenerator
+from ..generators.schema_generator import SchemaGenerator
+from ..generators.project_assembler import ProjectAssembler
 
 
 class GenerationStage:

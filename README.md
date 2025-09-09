@@ -255,10 +255,10 @@ The converter includes comprehensive testing capabilities:
 
 ```bash
 # Run with verbose output to see detailed analysis
-python main.py convert /path/to/php/project --verbose
+python3 main.py convert /path/to/php/project --verbose
 
 # Perform dry run to validate before generation
-python main.py convert /path/to/php/project --dry-run
+python3 main.py convert /path/to/php/project --dry-run
 
 # Test generated FastAPI application
 cd fastapi_output
@@ -289,7 +289,7 @@ export LLM_PROVIDER=openai
 
 ```bash
 # Use verbose mode for detailed error information
-python main.py convert /path/to/php/project --verbose
+python3 main.py convert /path/to/php/project --verbose
 ```
 
 **4. Permission Errors**
@@ -306,7 +306,7 @@ Enable debug logging for troubleshooting:
 ```bash
 # Set debug environment variable
 export DEBUG=1
-python main.py convert /path/to/php/project --verbose
+python3 main.py convert /path/to/php/project --verbose
 ```
 
 ## 🤝 Contributing

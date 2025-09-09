@@ -9,7 +9,7 @@ from typing import Dict, Any, Optional, List
 import requests
 from abc import ABC, abstractmethod
 
-from config.settings import Settings
+from ..config.settings import Settings
 
 
 @dataclass
