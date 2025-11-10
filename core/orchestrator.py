@@ -6,14 +6,14 @@ import json
 from typing import Dict, Any, Optional
 from pathlib import Path
 
-from ..config.settings import Settings
-from ..config.prompts import Prompts
-from ..core.detector import PHPProjectDetector
-from ..core.llm_client import LLMClient
-from ..core.user_interface import UserInterface
-from ..stages.analysis_stage import AnalysisStage
-from ..stages.planning_stage import PlanningStage
-from ..stages.generation_stage import GenerationStage
+from config.settings import Settings
+from config.prompts import Prompts
+from core.detector import PHPProjectDetector
+from core.llm_client import LLMClient
+from core.user_interface import UserInterface
+from stages.analysis_stage import AnalysisStage
+from stages.planning_stage import PlanningStage
+from stages.generation_stage import GenerationStage
 
 
 class ConversionOrchestrator:

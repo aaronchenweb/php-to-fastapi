@@ -6,9 +6,9 @@ import re
 from typing import Dict, Any, List, Optional, Tuple
 from pathlib import Path
 
-from ..config.settings import Settings
-from ..core.user_interface import UserInterface
-from ..generators.llm_assisted_generator import LLMAssistedGenerator, ConversionRequest, ConversionContext
+from config.settings import Settings
+from core.user_interface import UserInterface
+from generators.llm_assisted_generator import LLMAssistedGenerator, ConversionRequest, ConversionContext
 
 
 class AuthConverter:

@@ -6,9 +6,9 @@ import re
 from typing import Dict, Any, List, Optional, Tuple
 from dataclasses import dataclass
 
-from ..config.settings import Settings
-from ..core.user_interface import UserInterface
-from ..core.llm_client import LLMClient, LLMResponse
+from config.settings import Settings
+from core.user_interface import UserInterface
+from core.llm_client import LLMClient, LLMResponse
 
 
 @dataclass

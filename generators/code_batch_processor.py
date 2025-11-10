@@ -7,8 +7,8 @@ from typing import Dict, Any, List, Optional, Tuple
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from ..config.settings import Settings
-from ..core.user_interface import UserInterface
+from config.settings import Settings
+from core.user_interface import UserInterface
 
 
 @dataclass

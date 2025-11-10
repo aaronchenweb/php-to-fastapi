@@ -6,8 +6,8 @@ import json
 from typing import Dict, Any, List, Optional
 from pathlib import Path
 
-from ..config.settings import Settings
-from ..core.user_interface import UserInterface
+from config.settings import Settings
+from core.user_interface import UserInterface
 
 
 class ProjectAssembler:

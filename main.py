@@ -10,11 +10,11 @@ import os
 from pathlib import Path
 from typing import Optional
 
-from .php_to_fastapi.config.settings import Settings
-from .php_to_fastapi.config.prompts import Prompts
-from .php_to_fastapi.core.detector import PHPProjectDetector
-from .php_to_fastapi.core.orchestrator import ConversionOrchestrator
-from .php_to_fastapi.core.user_interface import UserInterface
+from config.settings import Settings
+from config.prompts import Prompts
+from core.detector import PHPProjectDetector
+from core.orchestrator import ConversionOrchestrator
+from core.user_interface import UserInterface
 # from utils.validation import ProjectValidator
 
 

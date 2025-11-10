@@ -3,15 +3,15 @@
 
 from typing import Dict, Any, List, Optional
 
-from ..core.llm_client import LLMClient
-from ..core.user_interface import UserInterface
-from ..config.prompts import Prompts
+from core.llm_client import LLMClient
+from core.user_interface import UserInterface
+from config.prompts import Prompts
 
 # Import modular planners
-from ..planners.conversion_planner import ConversionPlanner
-from ..planners.structure_planner import StructurePlanner
-from ..planners.dependency_planner import DependencyPlanner
-from ..planners.migration_planner import MigrationPlanner
+from planners.conversion_planner import ConversionPlanner
+from planners.structure_planner import StructurePlanner
+from planners.dependency_planner import DependencyPlanner
+from planners.migration_planner import MigrationPlanner
 
 
 class PlanningStage:

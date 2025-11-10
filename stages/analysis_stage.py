@@ -7,17 +7,17 @@ import re
 from typing import Dict, Any, List, Optional
 from pathlib import Path
 
-from ..core.detector import PHPProjectDetector, PHPProjectInfo
-from ..core.llm_client import LLMClient
-from ..core.user_interface import UserInterface
-from ..config.prompts import Prompts
+from core.detector import PHPProjectDetector, PHPProjectInfo
+from core.llm_client import LLMClient
+from core.user_interface import UserInterface
+from config.prompts import Prompts
 
 # Import modular analyzers
-from ..analyzers.php_parser import PHPParser
-from ..analyzers.api_extractor import APIExtractor
-from ..analyzers.dependency_mapper import DependencyMapper
-from ..analyzers.structure_analyzer import StructureAnalyzer
-from ..analyzers.database_analyzer import DatabaseAnalyzer
+from analyzers.php_parser import PHPParser
+from analyzers.api_extractor import APIExtractor
+from analyzers.dependency_mapper import DependencyMapper
+from analyzers.structure_analyzer import StructureAnalyzer
+from analyzers.database_analyzer import DatabaseAnalyzer
 
 
 class AnalysisStage:

@@ -7,7 +7,7 @@ from pathlib import Path
 from dataclasses import dataclass
 from typing import List, Dict, Set, Optional, Tuple
 
-from ..config.settings import Settings
+from config.settings import Settings
 
 
 @dataclass
